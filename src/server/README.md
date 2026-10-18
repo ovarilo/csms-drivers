@@ -1,6 +1,6 @@
 # The CSMS driver over HTTP
 
-`@ovarilo/csms-driver/server` serves a CSMS driver over HTTP/JSON, so an
+`@ovarilo/csms-drivers/server` serves a CSMS driver over HTTP/JSON, so an
 application in any language can provision a charge point and send an OCPP 1.6
 remote operation through the CSMS without importing TypeScript. The API is the
 same whichever CSMS is behind it: SteVe's form fields and CitrineOS's routes
@@ -17,8 +17,8 @@ client's job.
 over any `CsmsDriver`, which you can hand to `Bun.serve`:
 
 ```ts
-import { createSteveCsmsDriver } from "@ovarilo/csms-driver";
-import { createCsmsHttpHandler } from "@ovarilo/csms-driver/server";
+import { createSteveCsmsDriver } from "@ovarilo/csms-drivers";
+import { createCsmsHttpHandler } from "@ovarilo/csms-drivers/server";
 
 const driver = createSteveCsmsDriver({ config: { baseUrl, username, password } });
 Bun.serve({

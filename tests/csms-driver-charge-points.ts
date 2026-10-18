@@ -104,7 +104,7 @@ import {
   type ChargePointUpdate,
   type CsmsChargePointAdmin,
   type CsmsDriver,
-} from "@ovarilo/csms-driver";
+} from "@ovarilo/csms-drivers";
 
 /** The declaration the flawed copies run under unless they say otherwise:
  *  the default profile, and one that carries a password. */

@@ -10,8 +10,8 @@
 import {
   createCitrineOsCsmsDriver,
   createSteveCsmsDriver,
-} from "@ovarilo/csms-driver";
-import type { FetchLike } from "@ovarilo/csms-driver";
+} from "@ovarilo/csms-drivers";
+import type { FetchLike } from "@ovarilo/csms-drivers";
 
 const failures: string[] = [];
 

@@ -69,13 +69,13 @@ import {
   type CsmsDriver,
   type CsmsOperation16,
   type CsmsOperation16Action,
-} from "@ovarilo/csms-driver";
+} from "@ovarilo/csms-drivers";
 import {
   createCsmsHttpHandler,
   MAX_TIMEOUT_MS,
   OPERATION_16_PATHS,
   type CsmsHttpOptions,
-} from "@ovarilo/csms-driver/server";
+} from "@ovarilo/csms-drivers/server";
 
 const failures: string[] = [];
 

@@ -1,4 +1,4 @@
-# @ovarilo/csms-driver
+# @ovarilo/csms-drivers
 
 Reusable CSMS driver library: OCPP operation contracts, dispatch errors,
 capability declarations, typed session and connector read interfaces, the
@@ -17,22 +17,22 @@ The package ships TypeScript sources and is consumed with [Bun](https://bun.sh)
 as a git dependency pinned to a tag or commit:
 
 ```sh
-bun add github:ovarilo/csms-driver#<tag-or-commit>
+bun add github:ovarilo/csms-drivers#<tag-or-commit>
 ```
 
 The generated declarations in `types/` are committed, because a git dependency
 does not reliably run `prepare` under Bun. The consumer's TypeScript needs
-`"moduleResolution": "bundler"`; `@ovarilo/csms-driver/tsconfig` is a base
+`"moduleResolution": "bundler"`; `@ovarilo/csms-drivers/tsconfig` is a base
 configuration that sets it:
 
 ```json
-{ "extends": "@ovarilo/csms-driver/tsconfig", "include": ["src/**/*.ts"] }
+{ "extends": "@ovarilo/csms-drivers/tsconfig", "include": ["src/**/*.ts"] }
 ```
 
 | import | contents |
 |---|---|
-| `@ovarilo/csms-driver` | contracts, errors, charge-point model, `createSteveCsmsDriver`, `createCitrineOsCsmsDriver` |
-| `@ovarilo/csms-driver/server` | `createCsmsHttpHandler` and the HTTP route table |
+| `@ovarilo/csms-drivers` | contracts, errors, charge-point model, `createSteveCsmsDriver`, `createCitrineOsCsmsDriver` |
+| `@ovarilo/csms-drivers/server` | `createCsmsHttpHandler` and the HTTP route table |
 
 ## Usage
 
@@ -54,7 +54,7 @@ Reset.
 import {
   createCitrineOsCsmsDriver,
   type FetchLike,
-} from "@ovarilo/csms-driver";
+} from "@ovarilo/csms-drivers";
 
 const fetch: FetchLike = async () => new Response(
   JSON.stringify([{ success: true, payload: { status: "Accepted" } }]),
@@ -133,7 +133,7 @@ implement the surface yet.
 
 ## Over HTTP
 
-`@ovarilo/csms-driver/server` serves a driver over HTTP/JSON for applications
+`@ovarilo/csms-drivers/server` serves a driver over HTTP/JSON for applications
 in any language. See [`src/server/README.md`](src/server/README.md).
 
 ## Development
