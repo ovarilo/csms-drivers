@@ -172,13 +172,13 @@ function profileFor(ref: ChargingProfileRef, refs: CitrineRefs): CitrineCharging
   const profile = refs.chargingProfileByRef?.(ref);
   if (!profile) {
     // Deliberately NOT UnsupportedOperationError: CitrineOS can express this
-    // operation perfectly well. An unknown ref means `ocpp-tck driver provision`
-    // did not run, or profiles.ts and the scenario disagree about a name --
+    // operation perfectly well. An unknown ref means the caller's
+    // `chargingProfileByRef` lookup was not provisioned with that name --
     // an environment fault, and reporting it as a capability gap would file it
     // against the CSMS.
     throw new Error(
       `citrineos: no provisioned charging profile for ref ${JSON.stringify(ref)} ` +
-        "-- did `ocpp-tck driver provision` run?",
+        "-- does refs.chargingProfileByRef know it?",
     );
   }
   return profile;

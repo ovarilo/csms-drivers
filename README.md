@@ -6,7 +6,9 @@ bundled SteVe and CitrineOS operation factories, and an HTTP/JSON handler over
 any driver. OCPP 1.6 and OCPP 2.0.1 remain separate contracts.
 
 Extracted from [open-ocpp-tck](https://github.com/juherr/open-ocpp-tck)
-(`packages/csms-driver`), with its history. The library has no runtime
+(`packages/csms-driver`), with the history of that directory; earlier
+commits, from before the code moved there out of `drivers/` and
+`tck/driver.ts`, stay upstream. The library has no runtime
 dependency and no tie back to the TCK.
 
 ## Install
