@@ -1,30 +1,58 @@
-# CSMS driver library
+# @ovarilo/csms-driver
 
-`open-ocpp-tck/csms-driver` contains the reusable OCPP operation contracts,
-dispatch errors, capability declarations, typed session and connector read
-interfaces, and the bundled SteVe and CitrineOS operation factories. OCPP 1.6
-and OCPP 2.0.1 remain separate contracts.
+Reusable CSMS driver library: OCPP operation contracts, dispatch errors,
+capability declarations, typed session and connector read interfaces, the
+bundled SteVe and CitrineOS operation factories, and an HTTP/JSON handler over
+any driver. OCPP 1.6 and OCPP 2.0.1 remain separate contracts.
+
+Extracted from [open-ocpp-tck](https://github.com/juherr/open-ocpp-tck)
+(`packages/csms-driver`), with its history. The library has no runtime
+dependency and no tie back to the TCK.
+
+## Install
+
+The package ships TypeScript sources and is consumed with [Bun](https://bun.sh)
+as a git dependency pinned to a tag or commit:
+
+```sh
+bun add github:ovarilo/csms-driver#<tag-or-commit>
+```
+
+The generated declarations in `types/` are committed, because a git dependency
+does not reliably run `prepare` under Bun. The consumer's TypeScript needs
+`"moduleResolution": "bundler"`; `@ovarilo/csms-driver/tsconfig` is a base
+configuration that sets it:
+
+```json
+{ "extends": "@ovarilo/csms-driver/tsconfig", "include": ["src/**/*.ts"] }
+```
+
+| import | contents |
+|---|---|
+| `@ovarilo/csms-driver` | contracts, errors, charge-point model, `createSteveCsmsDriver`, `createCitrineOsCsmsDriver` |
+| `@ovarilo/csms-driver/server` | `createCsmsHttpHandler` and the HTTP route table |
+
+## Usage
 
 Generic capabilities describe only the operations the returned factory can
-dispatch. TCK-only observation flags for reservations, charging profiles, and
-device-model records stay in the TCK adapter contract.
+dispatch.
 
-The factories do not create a TCK scenario or simulator. They accept CSMS
-configuration, a transport, and any lookups needed to translate opaque CSMS
-handles. Read APIs can be supplied where a deployment exposes them. The TCK
-adapters in `drivers/` add scope declarations, expected failures, fixture
-lifecycle, simulator transport, and assertion-oriented `CsmsRecords`.
+The factories accept CSMS configuration, a transport, and any lookups needed
+to translate opaque CSMS handles. Read APIs can be supplied where a deployment
+exposes them. Test-harness concerns (scope declarations, expected failures,
+fixture lifecycle, simulator transport, assertion records) stay in the
+consumer, as open-ocpp-tck's `drivers/` adapters do.
 
 For a complete executable consumer example, see
-[`examples/csms-driver-smoke.ts`](../../examples/csms-driver-smoke.ts). It
+[`examples/csms-driver-smoke.ts`](examples/csms-driver-smoke.ts). It
 creates the CitrineOS factory with a fake HTTP transport and sends an OCPP 2.0.1
-Reset without loading the TCK runner.
+Reset.
 
 ```ts
 import {
   createCitrineOsCsmsDriver,
   type FetchLike,
-} from "open-ocpp-tck/csms-driver";
+} from "@ovarilo/csms-driver";
 
 const fetch: FetchLike = async () => new Response(
   JSON.stringify([{ success: true, payload: { status: "Accepted" } }]),
@@ -103,9 +131,18 @@ implement the surface yet.
 
 ## Over HTTP
 
-`ocpp-tck csms-server` serves a driver over HTTP/JSON for applications in any
-language, and `open-ocpp-tck/csms-driver/server` exports the handler behind it.
-See [`server/README.md`](server/README.md).
+`@ovarilo/csms-driver/server` serves a driver over HTTP/JSON for applications
+in any language. See [`src/server/README.md`](src/server/README.md).
 
-The existing `open-ocpp-tck/driver` import remains available for driver modules
-that implement the TCK lifecycle contract.
+## Development
+
+```sh
+bun install
+bun run typecheck
+bun run test          # boundary guard, committed types check, tests, example
+bun run build:types   # regenerate types/ after an API change, and commit it
+```
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).

@@ -24,7 +24,7 @@
  * model is this fixture's one assumption; `tools/steve-charge-points.ts`
  * re-checks the adapter against the real image when the pin moves.
  */
-import type { FetchLike } from "../../packages/csms-driver/contracts";
+import type { FetchLike } from "../../src/contracts";
 
 export const FAKE_STEVE_BASE = "http://steve.test/manager";
 const CONTEXT = "/steve/manager";

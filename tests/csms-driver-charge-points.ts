@@ -4,7 +4,7 @@
  * csms-driver-charge-points.ts -- the charge-point administration surface
  * means the same thing whichever CSMS is behind it.
  *
- * `CsmsDriver.chargePoints` is optional and CSMS-neutral (issue #154): a
+ * `CsmsDriver.chargePoints` is optional and CSMS-neutral (juherr/open-ocpp-tck#154): a
  * consumer outside the TCK provisions a station through it without knowing
  * which CSMS it is talking to. That only works if every driver answers the
  * edge cases alike, so the contract states them and this guard holds a driver
@@ -79,8 +79,8 @@
  * OCPP endpoint, which this guard has no way to reach.
  */
 
-import { STEVE_CHARGE_POINT_PAGES } from "../packages/csms-driver/steve/forms";
-import { SteveUiOps } from "../packages/csms-driver/steve/ui-client";
+import { STEVE_CHARGE_POINT_PAGES } from "../src/steve/forms";
+import { SteveUiOps } from "../src/steve/ui-client";
 import { FAKE_STEVE_BASE, fakeSteveManager, type FakeSteveManager } from "./fixtures/fake-steve-manager";
 import {
   ALL_PROFILES,
@@ -104,7 +104,7 @@ import {
   type ChargePointUpdate,
   type CsmsChargePointAdmin,
   type CsmsDriver,
-} from "open-ocpp-tck/csms-driver";
+} from "@ovarilo/csms-driver";
 
 /** The declaration the flawed copies run under unless they say otherwise:
  *  the default profile, and one that carries a password. */

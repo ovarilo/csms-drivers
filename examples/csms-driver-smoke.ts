@@ -4,7 +4,7 @@
 import {
   createCitrineOsCsmsDriver,
   type FetchLike,
-} from "open-ocpp-tck/csms-driver";
+} from "@ovarilo/csms-driver";
 
 const requests: { url: string; body: string }[] = [];
 const fetch: FetchLike = async (input, init) => {

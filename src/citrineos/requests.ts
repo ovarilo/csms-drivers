@@ -213,7 +213,7 @@ export async function toCitrineRequest(
  * was nothing for a variant to decide. What changed is the OTHER direction --
  * `capabilitiesFor` declared the whole of `CSMS_OPERATION_201_ACTIONS` for v2,
  * so an arm added to the contract was declared supported by this driver before
- * any endpoint had been read off a decorator (issue #71). The fix is the one
+ * any endpoint had been read off a decorator (juherr/open-ocpp-tck#71). The fix is the one
  * the 1.6 half already had: a table of what is unrouted, subtracted from the
  * declaration and read again here, so a declared action and a POSTed request
  * cannot disagree. A variant is what indexes that table, and v2's row being

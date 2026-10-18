@@ -1189,13 +1189,13 @@ export class UnsupportedOperationError extends Error {
  * opened -- bytes went out and no answer came back, so whether the charge
  * point was asked is precisely what nobody knows. Reporting that as an
  * ordinary failure would warn and carry on into assertions about a station
- * that may never have been asked, which is issue #77 again; reporting it here
+ * that may never have been asked, which is juherr/open-ocpp-tck#77 again; reporting it here
  * gets the verdict the uncertainty deserves. What a driver may NOT do is come
  * here from an answer it received and understood.
  *
  * A scenario that swallows this and carries on reports a handful of confident
  * FAILs about a charge point that was never asked to do anything -- which is
- * exactly what issue #77 cost to diagnose, and why `warnOpFailed` in
+ * exactly what juherr/open-ocpp-tck#77 cost to diagnose, and why `warnOpFailed` in
  * `tck/op-warn.ts` lets this one class through instead of warning and
  * continuing.
  *
@@ -1308,7 +1308,7 @@ export interface CsmsOperations16 {
 //
 // `CsmsOperations16<Op = CsmsOperation16>`, parameterised on the operation
 // type, which two one-method interfaces differing only in that type invite.
-// That is issue #25's second rejected shape, declined there rather than here;
+// That is juherr/open-ocpp-tck#25's second rejected shape, declined there rather than here;
 // the header above the 2.0.1 vocabulary says why, and the short version is
 // that it asks us to decide what the two protocols share before a second 2.0.1
 // driver exists to disagree.

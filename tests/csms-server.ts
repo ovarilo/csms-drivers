@@ -2,29 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * csms-server.ts -- the `csms-server` daemon is a thin, deterministic HTTP
- * adapter over a `CsmsDriver` (issue #156).
+ * adapter over a `CsmsDriver` (juherr/open-ocpp-tck#156).
  *
  * A process in any language provisions a charge point and drives an OCPP 1.6
  * operation through the daemon, so what it can rely on is what this guard
- * holds. The handler is a pure `(Request) => Promise<Response>`, so most rows
- * hand it requests directly; the first part goes through a real port and the
- * driver registry, because "the daemon starts" is a claim about that path.
+ * holds. The handler is a pure `(Request) => Promise<Response>`, so every row
+ * hands it requests directly.
  *
- * PROPERTY, in 7 parts:
- *  1. THE DAEMON STARTS ON A LOADED DRIVER. `startCsmsServer` resolves
- *     `CSMS_DRIVER` like the TCK does, describes it from its module, serves
- *     it on a port, provisions a station and routes an operation through it
- *     -- the issue's acceptance flow, with no TypeScript on the client side --
- *     and `stop` closes the driver's parts -- as does a start that fails
- *     after `create(env)`, which leaves the caller no server to stop. A
- *     module that declares nothing is served the compulsory 1.6 vocabulary
- *     and no admin surface. The `csms-server` command listens for SIGINT and
- *     SIGTERM BEFORE startup begins: a signal received while the driver is
- *     still being created stops the daemon -- server stopped, parts closed --
- *     as soon as it is up, instead of killing the process past its cleanup;
- *     and the command leaves no listener behind, whether it stopped or its
- *     start failed. The signal source is the command's argument, so the
- *     ordering is driven by promises rather than by a timer.
+ * PROPERTY, in 7 parts (numbered from 2: part 1, the TCK's `csms-server`
+ * daemon, stayed in open-ocpp-tck with the command):
  *  2. ONE REQUEST, ONE DRIVER CALL. A lifecycle request reaches the matching
  *     `chargePoints` method once, with the decoded argument; an operation
  *     reaches `operations16.execute` once, with the `CsmsOperation16` the
@@ -48,8 +34,7 @@
  *     a daemon defect to `internal`, never to a CSMS code; an input refusal
  *     (400) never calls the driver, and an impossible calendar date is one;
  *     a deadline answers 504 and says the outcome is unknown, and a deadline
- *     that could expire before any driver answers is refused at start, by
- *     the library and by the CLI.
+ *     that could expire before any driver answers is refused at start.
  *  6. NOTHING CSMS-SHAPED OR SECRET LEAVES. The driver's receipt is not
  *     returned; a password is not read back; a configured secret or a
  *     request's Basic Auth password inside a driver error is redacted in the
@@ -71,9 +56,6 @@
  *     is same-origin and preflights nothing.
  */
 
-import { EventEmitter } from "node:events";
-import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import {
   ChargePointAlreadyExistsError,
   ChargePointNotFoundError,
@@ -87,14 +69,13 @@ import {
   type CsmsDriver,
   type CsmsOperation16,
   type CsmsOperation16Action,
-} from "open-ocpp-tck/csms-driver";
+} from "@ovarilo/csms-driver";
 import {
   createCsmsHttpHandler,
   MAX_TIMEOUT_MS,
   OPERATION_16_PATHS,
   type CsmsHttpOptions,
-} from "open-ocpp-tck/csms-driver/server";
-import { csmsServerCommand, startCsmsServer } from "../tck/csms-server";
+} from "@ovarilo/csms-driver/server";
 
 const failures: string[] = [];
 
@@ -248,7 +229,6 @@ async function expectError(
 }
 
 const RESET = "/v1/charge-points/CP-1/operations/reset";
-const JSON_REQUEST = { "content-type": "application/json" };
 
 // ---------------------------------------------------------------------------
 // Part 3 -- the path table.
@@ -552,11 +532,6 @@ for (const timeoutMs of [0, -1, 1.5, MAX_TIMEOUT_MS + 1]) {
   }
   check(refused, `a deadline of ${timeoutMs} ms is refused at start`);
 }
-for (const argv of [["--timeout-ms", "0"], ["--timeout-ms", "3000000000"], ["--port", "70000"], ["--port", ""]]) {
-  // Refused while parsing, before any driver is loaded -- the env names none.
-  const code = await csmsServerCommand(argv, {});
-  check(code === 1, `csms-server ${argv.join(" ")} is refused, exit ${code}`);
-}
 
 const INPUT_REFUSALS: [string, string, string, unknown][] = [
   ["malformed JSON", "POST", RESET, "{not json"],
@@ -695,162 +670,9 @@ for (const contentType of ["application/json; charset=utf-8", "Application/JSON"
   check(ex.status === 204, `DELETE needs no content type, got ${ex.status} (${ex.text})`);
 }
 
-// ---------------------------------------------------------------------------
-// Part 1 -- the daemon, through the registry and a real port.
-// ---------------------------------------------------------------------------
-
-{
-  const fixturePath = resolve(import.meta.dir, "fixtures/fake-csms-driver.ts");
-  const fixture = (await import(pathToFileURL(fixturePath).href)) as typeof import("./fixtures/fake-csms-driver");
-  const log: string[] = [];
-  const server = await startCsmsServer({
-    env: { CSMS_DRIVER: fixturePath, FAKE_CSMS_PASS: "pw-from-env-77" },
-    host: "127.0.0.1",
-    port: 0,
-    log: (line) => log.push(line),
-  });
-  try {
-    const about = await fetch(`${server.url}/v1/driver`);
-    const aboutBody = await about.json();
-    check(
-      about.status === 200 &&
-        JSON.stringify(aboutBody) ===
-          JSON.stringify({
-            id: "fake",
-            displayName: "Fake CSMS",
-            protocols: ["OCPP-1.6J"],
-            operations16: [
-              { operation: "reset", action: "Reset" },
-              { operation: "change-configuration", action: "ChangeConfiguration" },
-            ],
-            chargePoints: { securityProfiles: [0] },
-          }),
-      `the daemon describes the loaded driver from its module: ${JSON.stringify(aboutBody)}`,
-    );
-
-    const created = await fetch(`${server.url}/v1/charge-points`, {
-      method: "POST",
-      headers: JSON_REQUEST,
-      body: JSON.stringify({ id: "CP-1", registration: "Pending" }),
-    });
-    const readBack = await fetch(`${server.url}/v1/charge-points/CP-1`);
-    const readBackBody = await readBack.json();
-    check(created.status === 201, `the daemon provisions through the loaded driver, got ${created.status}`);
-    check(
-      readBack.status === 200 &&
-        JSON.stringify(readBackBody) === JSON.stringify({ id: "CP-1", registration: "Pending", security: { profile: 0 } }),
-      `the provisioned station reads back through the daemon: ${JSON.stringify(readBackBody)}`,
-    );
-
-    const reset = await fetch(`${server.url}${RESET}`, { method: "POST", headers: JSON_REQUEST, body: JSON.stringify({ type: "Soft" }) });
-    check(reset.status === 202, `the daemon dispatches through the loaded driver, got ${reset.status}`);
-    check(
-      JSON.stringify(fixture.calls) === JSON.stringify([{ cpId: "CP-1", op: { action: "Reset", type: "Soft" } }]),
-      `the loaded driver saw one Reset: ${JSON.stringify(fixture.calls)}`,
-    );
-
-    const refused = await fetch(`${server.url}/v1/charge-points/CP-1/operations/change-configuration`, {
-      method: "POST",
-      headers: JSON_REQUEST,
-      body: JSON.stringify({ key: "HeartbeatInterval", value: "30" }),
-    });
-    const refusedText = await refused.text();
-    check(refused.status === 502, `the loaded driver's refusal is translated, got ${refused.status}`);
-    check(!refusedText.includes("pw-from-env-77"), `a credential from the environment is redacted: ${refusedText}`);
-    // A second daemon on the same port cannot listen, and must not leak the
-    // parts its create(env) opened.
-    let secondRefused = false;
-    try {
-      const second = await startCsmsServer({
-        env: { CSMS_DRIVER: fixturePath },
-        host: "127.0.0.1",
-        port: Number(new URL(server.url).port),
-      });
-      await second.stop();
-    } catch {
-      secondRefused = true;
-    }
-    check(secondRefused, "a daemon on a port already taken does not start");
-    check(
-      JSON.stringify(fixture.closed) === JSON.stringify(["closed"]),
-      `a start that fails closes the parts it created: ${JSON.stringify(fixture.closed)}`,
-    );
-    check(log.length === 5, `the daemon logs one line per request: ${JSON.stringify(log)}`);
-  } finally {
-    await server.stop();
-  }
-  check(JSON.stringify(fixture.closed) === JSON.stringify(["closed", "closed"]), "stop closes the driver's parts");
-}
-
-{
-  const server = await startCsmsServer({
-    env: { CSMS_DRIVER: resolve(import.meta.dir, "fixtures/undeclared-csms-driver.ts") },
-    host: "127.0.0.1",
-    port: 0,
-  });
-  try {
-    const about = (await (await fetch(`${server.url}/v1/driver`)).json()) as {
-      operations16: { action: string }[];
-      chargePoints: unknown;
-    };
-    check(
-      JSON.stringify(about.operations16.map((entry) => entry.action)) === JSON.stringify(CSMS_OPERATION_16_ACTIONS) &&
-        about.chargePoints === null,
-      `a module that declares nothing is served the 1.6 vocabulary and no admin: ${JSON.stringify(about)}`,
-    );
-  } finally {
-    await server.stop();
-  }
-}
-
-// The command's signal lifecycle. A held create(env) puts the signal inside
-// startup by construction; the race against a timer only ends a run whose
-// command never stops, which would otherwise hang the guard instead of failing it.
-async function settlesWithin<T>(promise: Promise<T>, ms: number): Promise<{ value?: T; error?: unknown; settled: boolean }> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const expired = new Promise<{ settled: false }>((done) => (timer = setTimeout(() => done({ settled: false }), ms)));
-  try {
-    return await Promise.race([
-      promise.then((value) => ({ value, settled: true }), (error: unknown) => ({ error, settled: true })),
-      expired,
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-const listening = (signals: EventEmitter) => signals.listenerCount("SIGINT") + signals.listenerCount("SIGTERM");
-{
-  const fixturePath = resolve(import.meta.dir, "fixtures/fake-csms-driver.ts");
-  const fixture = (await import(pathToFileURL(fixturePath).href)) as typeof import("./fixtures/fake-csms-driver");
-  const closedBefore = fixture.closed.length;
-  const signals = new EventEmitter();
-  const command = csmsServerCommand(
-    ["--port", "0"],
-    { CSMS_DRIVER: fixturePath, FAKE_CSMS_HOLD_CREATE: "1" },
-    signals,
-  );
-  await fixture.createEntered;
-  check(listening(signals) === 2, `csms-server listens for SIGINT and SIGTERM before startup completes: ${listening(signals)}`);
-  signals.emit("SIGTERM");
-  fixture.releaseCreate();
-  const outcome = await settlesWithin(command, 5_000);
-  check(outcome.settled && outcome.value === 0, `a signal received during startup stops the daemon once it is up: ${JSON.stringify(outcome)}`);
-  check(fixture.closed.length === closedBefore + 1, "a signal received during startup still closes the driver's parts");
-  check(listening(signals) === 0, `csms-server leaves no signal listener behind after stopping: ${listening(signals)}`);
-}
-{
-  const signals = new EventEmitter();
-  const outcome = await settlesWithin(
-    csmsServerCommand(["--port", "0"], { CSMS_DRIVER: resolve(import.meta.dir, "fixtures/no-such-driver.ts") }, signals),
-    5_000,
-  );
-  check(outcome.settled && outcome.error !== undefined, `a start that fails rejects: ${JSON.stringify(outcome)}`);
-  check(listening(signals) === 0, `csms-server leaves no signal listener behind after a failed start: ${listening(signals)}`);
-}
-
 if (failures.length > 0) {
   console.error("FAIL: csms-server does not hold:");
   for (const failure of failures) console.error(`  - ${failure}`);
   process.exit(1);
 }
-console.log("csms-server: daemon, routing, capabilities, error envelope and redaction hold.");
+console.log("csms-server: routing, capabilities, error envelope and redaction hold.");

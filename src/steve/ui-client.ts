@@ -90,7 +90,7 @@ function extractCsrf(html: string): string {
  * token, then POST it back. Interleave two of those and a lane spends a token
  * against a session that replaced its own, which Spring answers 403 -- so the
  * operation never reaches the wire and the scenario reports failures about a
- * charge point nobody asked. That was issue #77, at 45% of sweeps.
+ * charge point nobody asked. That was juherr/open-ocpp-tck#77, at 45% of sweeps.
  *
  * REJECTED, having been measured: one instance per lane. It is the obvious way
  * to delete the lock, and it costs a login per lane and gives up the single
@@ -209,7 +209,7 @@ export class SteveUiOps {
     });
     this.absorbSetCookie(res);
 
-    // Check, rather than assume. An unchecked signin is why issue #77 read as
+    // Check, rather than assume. An unchecked signin is why juherr/open-ocpp-tck#77 read as
     // "could not find _csrf token in response body" from a GET three steps
     // later: the failure that mattered had already happened and said nothing.
     if (res.status >= 400) {

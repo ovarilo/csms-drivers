@@ -1,53 +1,58 @@
-# csms-server: the CSMS driver over HTTP
+# The CSMS driver over HTTP
 
-`ocpp-tck csms-server` serves a CSMS driver over HTTP/JSON, so an application
-in any language can provision a charge point and send an OCPP 1.6 remote
-operation through the CSMS without importing TypeScript. The API is the same
-whichever CSMS is behind it: SteVe's form fields and CitrineOS's routes stay
-inside their drivers.
+`@ovarilo/csms-driver/server` serves a CSMS driver over HTTP/JSON, so an
+application in any language can provision a charge point and send an OCPP 1.6
+remote operation through the CSMS without importing TypeScript. The API is the
+same whichever CSMS is behind it: SteVe's form fields and CitrineOS's routes
+stay inside their drivers.
 
-The daemon is a thin adapter. Each request decodes its body, checks what the
+The handler is a thin adapter. Each request decodes its body, checks what the
 driver declares, makes at most one driver call and translates the outcome. It
 keeps no state between requests and runs no workflow: sequencing calls is the
 client's job.
 
 ## Running it
 
-The daemon loads its driver exactly as the TCK runner does: `CSMS_DRIVER`
-names the module, and the driver reads its configuration and credentials from
-the same environment variables (`ocpp-tck --help` lists them for the selected
-driver).
+`createCsmsHttpHandler(driver, options)` is a `(Request) => Promise<Response>`
+over any `CsmsDriver`, which you can hand to `Bun.serve`:
 
-```sh
-CSMS_DRIVER=./drivers/steve/index.ts \
-STEVE_URL=http://localhost:8180/steve/manager STEVE_PASS=... \
-  bunx ocpp-tck csms-server --port 8787
+```ts
+import { createSteveCsmsDriver } from "@ovarilo/csms-driver";
+import { createCsmsHttpHandler } from "@ovarilo/csms-driver/server";
+
+const driver = createSteveCsmsDriver({ config: { baseUrl, username, password } });
+Bun.serve({
+  hostname: "127.0.0.1",
+  port: 8787,
+  fetch: createCsmsHttpHandler(driver, {
+    about: { id: "steve", displayName: "SteVe" },
+    secrets: [password],
+    log: (line) => console.error(line),
+  }),
+});
 ```
 
-| flag | default | |
+| option | default | |
 |---|---|---|
-| `--host` | `127.0.0.1` | The daemon has no authentication of its own, so it only listens on loopback unless you choose otherwise. |
-| `--port` | `8787` | `0` picks a free port; the chosen URL is printed. |
-| `--timeout-ms` | `60000` | How long one driver call may take before the daemon answers `504 timeout`. From 1 to 2147483647: a deadline that expires before any driver can answer would report every dispatched operation as `timeout`, so it is refused rather than clamped. |
+| `about` | required | The identity `GET /v1/driver` reports. |
+| `timeoutMs` | `60000` | How long one driver call may take before the server answers `504 timeout`. From 1 to 2147483647: a deadline that expires before any driver can answer would report every dispatched operation as `timeout`, so it is refused with a `RangeError` rather than clamped. |
+| `secrets` | none | Values redacted from every message the server returns or logs: the driver's credentials. |
+| `log` | none | Receives one line per request (method, path, status, error code), never a body. |
 
-The daemon stops on SIGINT or SIGTERM, closing the driver after any request
-still in flight. A signal received while it is still starting stops it as soon
-as it is up; send the same signal again to abort a startup that hangs. It logs one line per request to stderr
-(method, path, status, error code) and never logs a body.
+The handler has no authentication of its own, so listen on loopback unless
+you put an authenticated proxy in front of it.
+
+The `ocpp-tck csms-server` command of
+[open-ocpp-tck](https://github.com/juherr/open-ocpp-tck) is a ready-made host
+for this handler: it loads a driver from `CSMS_DRIVER`, derives `secrets`
+from the environment and stops on SIGINT or SIGTERM.
 
 Credentials are never returned: `GET /v1/driver` reports declarations only,
 and the read-back of a charge point has no password. Error messages and log
-lines are redacted, but only of values the daemon knows:
-
-- the value of any environment variable whose name has `PASS`, `PASSWD`,
-  `PASSWORD`, `SECRET`, `TOKEN`, `KEY` or `CREDENTIAL(S)` as an
-  underscore-separated word (`STEVE_PASS`, `SIM_WS_BASIC_PASS`), if it is at
-  least four characters long;
-- the Basic Auth password carried by the request itself.
-
-A driver's built-in default credential, which is not in the environment, is
-not known to the daemon. Neither is a password the CSMS echoes back escaped or
-truncated.
+lines are redacted, but only of values the handler knows: the `secrets` it was
+given, and the Basic Auth password carried by the request itself. A driver's
+built-in default credential is not known to it. Neither is a password the CSMS
+echoes back escaped or truncated.
 
 ### Browsers cannot call it
 
@@ -56,7 +61,7 @@ the same machine: a page can send a cross-origin "simple" request (a `POST`
 with a `text/plain` body) to `127.0.0.1` without a CORS preflight. The page
 never reads the response, but the operation still happens. Browser
 protections for local addresses (Local Network Access) are not available in
-every browser, so the daemon refuses these requests itself, before routing
+every browser, so the server refuses these requests itself, before routing
 and before any driver call:
 
 - a request carrying an `Origin` header answers `403 forbidden_origin`.
@@ -66,17 +71,17 @@ and before any driver call:
   without parameters such as `; charset=utf-8`) answers
   `415 unsupported_media_type`. This applies to operations without a body,
   such as `clear-cache`, too. A page cannot send this type without a
-  preflight, and the daemon answers no preflight.
+  preflight, and the server answers no preflight.
 
 So a client must send `Content-Type: application/json` on every `POST` and
 `PATCH`; `curl -d` does not do it by default, so add
 `-H 'content-type: application/json'`. `DELETE` needs no content type.
 
-To drive the daemon from a browser application, put your own authenticated
+To drive the server from a browser application, put your own authenticated
 backend in front of it.
 
 One gap remains, and it is accepted on purpose: reads. A page using DNS
-rebinding reaches the daemon under its own host name, so to the browser its
+rebinding reaches the server under its own host name, so to the browser its
 `GET` requests are same-origin and carry no `Origin`. Such a page can read
 everything the two `GET` routes return:
 
@@ -93,10 +98,10 @@ way. Do not put anything in it you would not show to a web page.
 
 Such a page still cannot write. Browsers send `Origin` on every request whose
 method is not `GET` or `HEAD`, same-origin ones included (as `null` under a
-`no-referrer` policy), and the daemon refuses any request that carries it.
+`no-referrer` policy), and the server refuses any request that carries it.
 
-The daemon does not check the `Host` header. That would close the read gap,
-but it would also refuse clients that address the daemon by another name,
+The server does not check the `Host` header. That would close the read gap,
+but it would also refuse clients that address the server by another name,
 and nothing it serves today is worth that.
 
 ## The API
@@ -276,32 +281,11 @@ may change.
 | 502 | `transport_failure` | The request never reached the CSMS as an operation: the connection failed, the CSMS refused the driver's credentials, or it refused the request before dispatching it. The driver contract has no separate class for an authentication failure, so this code covers it. |
 | 502 | `csms_rejected` | The CSMS answered, but did not do what was asked, for example a form that came back with validation errors. |
 | 504 | `timeout` | The driver call did not finish within `--timeout-ms`. **The outcome is unknown**: the request may still have been dispatched. |
-| 500 | `internal` | A defect in the daemon itself. |
+| 500 | `internal` | A defect in the server itself. |
 
 ## Limits
 
 - OCPP 1.6 operations only. The OCPP 2.0.1 vocabulary (`operations201`) is
   not served yet; it would get its own path prefix, so adding it changes
   nothing above.
-- The daemon does not read sessions or connector state.
-
-## Embedding the handler
-
-The HTTP surface is also a library: `open-ocpp-tck/csms-driver/server` exports
-`createCsmsHttpHandler(driver, options)`, a `(Request) => Promise<Response>`
-over any `CsmsDriver`, which you can hand to `Bun.serve` without the TCK:
-
-```ts
-import { createSteveCsmsDriver } from "open-ocpp-tck/csms-driver";
-import { createCsmsHttpHandler } from "open-ocpp-tck/csms-driver/server";
-
-const driver = createSteveCsmsDriver({ config: { baseUrl, username, password } });
-Bun.serve({
-  hostname: "127.0.0.1",
-  port: 8787,
-  fetch: createCsmsHttpHandler(driver, {
-    about: { id: "steve", displayName: "SteVe" },
-    secrets: [password],
-  }),
-});
-```
+- The server does not read sessions or connector state.

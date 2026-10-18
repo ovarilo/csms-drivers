@@ -1,0 +1,26 @@
+{
+  "//": [
+    "Emits types/**/*.d.ts, which are COMMITTED.",
+    "",
+    "They have to exist: pointing `exports.*.types` at the raw .ts would put",
+    "this package's sources inside the consumer's program, checked with the",
+    "consumer's options (noUnusedLocals, erasableSyntaxOnly, ...), producing",
+    "errors inside node_modules that no consumer can fix.",
+    "",
+    "They have to be committed rather than built on install: this package is",
+    "consumed as a pinned git dependency, and a git dependency does not",
+    "reliably run prepack/prepare under bun.",
+    "",
+    "scripts/types-current.sh regenerates and diffs, so a stale types/ fails."
+  ],
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "rootDir": "src",
+    "outDir": "types"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["types"]
+}

@@ -24,7 +24,7 @@ import {
   type ChargePointSecurityProfile,
   type CsmsChargePointAdmin,
   type CsmsDriver,
-} from "open-ocpp-tck/csms-driver";
+} from "@ovarilo/csms-driver";
 
 /** Every station id the lifecycle may create, and the one it must never find. */
 export const CONFORMANCE_IDS = [
