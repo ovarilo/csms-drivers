@@ -10,7 +10,7 @@ name: Release
 # The package published is the one the gate validated: the gate uploads its dist/ as an artifact
 # and records the integrity of the package packed from it; the publish job puts that dist/ into a
 # checkout of the same commit and refuses to publish unless the package packs to the same
-# integrity. It publishes from the directory, not from a tarball, because only a directory publish
+# integrity (.github/actions/validated-dist). The handoff job runs that check on dry runs as well. It publishes from the directory, not from a tarball, because only a directory publish
 # records the gitHead that the registry-state check relies on. A rerun of the failed jobs is meant
 # to reuse the artifact of the run; if it cannot fetch it, rerun every job: that rebuilds and
 # re-gates the same commit to the same integrity, and registry-state skips a version already
@@ -94,9 +94,31 @@ jobs:
           overwrite: true
           retention-days: 7
 
+  # The artifact handoff on its own, without packages: write, so that a dry run rehearses it too.
+  handoff:
+    name: Check the artifact handoff
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Take the validated build
+        uses: ./.github/actions/validated-dist
+        with:
+          integrity: ${{ needs.validate.outputs.integrity }}
+
   publish:
     name: Publish to GitHub Packages
-    needs: validate
+    needs: [validate, handoff]
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -112,23 +134,10 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
 
-      - name: Download the validated build
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - name: Take the validated build
+        uses: ./.github/actions/validated-dist
         with:
-          name: dist
-          path: dist/
-
-      - name: Check the package is the validated one
-        env:
-          VALIDATED: ${{ needs.validate.outputs.integrity }}
-        run: |
-          set -euo pipefail
-          vp exec bun scripts/check-package.ts
-          integrity="$(npm pack --dry-run --json --ignore-scripts | jq -er '.[0].integrity')"
-          if [[ -z "${VALIDATED}" || "${integrity}" != "${VALIDATED}" ]]; then
-            echo "The package packs to ${integrity}, not to the validated '${VALIDATED}': re-run all jobs" >&2
-            exit 1
-          fi
+          integrity: ${{ needs.validate.outputs.integrity }}
 
       # Skips a version already published from this commit; fails on one published from another
       # commit and on any registry error other than "not found".

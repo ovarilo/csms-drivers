@@ -179,7 +179,8 @@ request as the change. Renovate keeps dependencies and action digests current.
 1. `bun scripts/release.ts prepare X.Y.Z` dates the Unreleased section and bumps
    `package.json`; open a pull request titled `chore(release): X.Y.Z` and merge it.
 2. Run the **Release** workflow from `main` with `version=X.Y.Z`, first with
-   `dry_run` (validation and the full gate only), then without.
+   `dry_run` (validation, the full gate and the check of the build handed to
+   the publish job; nothing is published), then without.
 3. It builds and validates the package, publishes that same build to GitHub
    Packages (the publish job refuses a package whose pack integrity differs from
    the validated one), then creates the `vX.Y.Z` tag and the GitHub
