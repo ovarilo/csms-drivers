@@ -20,6 +20,23 @@ as a git dependency pinned to a tag or commit:
 bun add github:ovarilo/csms-drivers#<tag-or-commit>
 ```
 
+Each release is also published to GitHub Packages. Map the scope to that
+registry with a token holding `read:packages`, in `bunfig.toml`:
+
+```toml
+[install.scopes]
+"@ovarilo" = { url = "https://npm.pkg.github.com", token = "$GITHUB_TOKEN" }
+```
+
+or in `.npmrc`:
+
+```ini
+@ovarilo:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+```
+
+then `bun add @ovarilo/csms-drivers`.
+
 The generated declarations in `types/` are committed, because a git dependency
 does not reliably run `prepare` under Bun. The consumer's TypeScript needs
 `"moduleResolution": "bundler"`; `@ovarilo/csms-drivers/tsconfig` is a base
@@ -140,10 +157,28 @@ in any language. See [`src/server/README.md`](src/server/README.md).
 
 ```sh
 bun install
-bun run typecheck
-bun run test          # boundary guard, committed types check, tests, example
+bunx vp config --no-agent  # once: installs the pre-commit and commit-msg hooks
+bun run check         # format, lint, type-check and test: what CI runs
+bun run format        # rewrite with Oxfmt (Vite+)
 bun run build:types   # regenerate types/ after an API change, and commit it
 ```
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/),
+checked by commitlint in the `commit-msg` hook and in CI (commits and pull
+request title). Notable changes go under `## [Unreleased]` in
+[`CHANGELOG.md`](CHANGELOG.md), which follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), in the same pull
+request as the change. Renovate keeps dependencies and action digests current.
+
+### Releasing
+
+1. `bun scripts/release.ts prepare X.Y.Z` dates the Unreleased section and bumps
+   `package.json`; open a pull request titled `chore(release): X.Y.Z` and merge it.
+2. Run the **Release** workflow from `main` with `version=X.Y.Z`, first with
+   `dry_run` (validation and the full gate only), then without.
+3. It publishes to GitHub Packages, then creates the `vX.Y.Z` tag and the GitHub
+   Release from the changelog section. Each step is idempotent: re-run a failed
+   run instead of dispatching again.
 
 ## License
 
