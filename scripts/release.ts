@@ -8,6 +8,7 @@
  *                                          refused unless package.json is X.Y.Z
  *   bun scripts/release.ts registry-state X.Y.Z SHA   prints published | missing
  *   bun scripts/release.ts tag-state X.Y.Z SHA        prints on-commit | free
+ *   bun scripts/release.ts release-state X.Y.Z        prints exists | missing
  *
  * `prepare` builds the release pull request; the dispatched Release workflow then checks that
  * package.json and the changelog agree, publishes, tags and calls `notes`. The two state
@@ -167,6 +168,31 @@ export function tagState(lookup: CommandResult, sha: string): "on-commit" | "fre
   return "on-commit";
 }
 
+/**
+ * Reads `gh api repos/<repo>/releases/tags/vX.Y.Z`. GitHub answers the same 404 for a missing
+ * release and for an unreachable repository, so "missing" is only sound once the repository was
+ * proven reachable with the same token: the workflow runs `tag-state` first, in the same step.
+ */
+export function releaseState(lookup: CommandResult, tag: string): "exists" | "missing" {
+  const output = parseJson(lookup.stdout);
+  if (lookup.exitCode !== 0) {
+    const status = field(output, "status");
+    const message = field(output, "message");
+    if (status === "404" && message === "Not Found") return "missing";
+    throw new Error(
+      typeof status === "string"
+        ? `release lookup failed with HTTP ${status}: ${String(message)}`
+        : `release lookup failed (exit ${lookup.exitCode}) without a readable error`,
+    );
+  }
+  const tagName = field(output, "tag_name");
+  if (typeof tagName !== "string") {
+    throw new Error(`release lookup printed unreadable output: ${lookup.stdout}`);
+  }
+  if (tagName !== tag) throw new Error(`the release found is for ${tagName}, not ${tag}`);
+  return "exists";
+}
+
 function run(argv: string[]): CommandResult {
   const result = Bun.spawnSync(argv, { stderr: "inherit" });
   return { exitCode: result.exitCode, stdout: result.stdout.toString() };
@@ -182,9 +208,10 @@ if (import.meta.main) {
   const [command, version, sha] = process.argv.slice(2);
   try {
     const stateCommand = command === "registry-state" || command === "tag-state";
-    if (!version || (stateCommand ? !sha : command !== "prepare" && command !== "notes")) {
+    const versionCommand = ["prepare", "notes", "release-state"].includes(command ?? "");
+    if (!version || (stateCommand ? !sha : !versionCommand)) {
       throw new Error(
-        "usage: bun scripts/release.ts <prepare|notes> X.Y.Z\n" +
+        "usage: bun scripts/release.ts <prepare|notes|release-state> X.Y.Z\n" +
           "       bun scripts/release.ts <registry-state|tag-state> X.Y.Z SHA",
       );
     }
@@ -213,6 +240,10 @@ if (import.meta.main) {
     } else if (command === "tag-state") {
       const repo = new URL(repoUrl(pkg)).pathname.slice(1);
       console.log(tagState(run(["gh", "api", `repos/${repo}/commits/v${version}`]), sha!));
+    } else if (command === "release-state") {
+      const repo = new URL(repoUrl(pkg)).pathname.slice(1);
+      const lookup = run(["gh", "api", `repos/${repo}/releases/tags/v${version}`]);
+      console.log(releaseState(lookup, `v${version}`));
     } else if (command === "notes") {
       // The release job publishes package.json as is: the notes must describe that version.
       if (pkg.version !== version) {

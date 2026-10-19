@@ -12,9 +12,13 @@
  * 2. Tag (`gh api repos/<repo>/commits/vX.Y.Z`): on this commit is
  *    "on-commit"; GitHub's 422 "No commit found" is "free"; on another commit
  *    is refused; any other failure (404 repository, 401, network) is refused.
+ * 3. Release (`gh api repos/<repo>/releases/tags/vX.Y.Z`): a release of that
+ *    tag is "exists"; 404 Not Found is "missing" (the repository was already
+ *    proven reachable by the tag lookup); a release of another tag, any other
+ *    failure (401, 403, 5xx, network) or unreadable output is refused.
  */
 
-import { registryState, tagState } from "../scripts/release.ts";
+import { registryState, releaseState, tagState } from "../scripts/release.ts";
 
 const failures: string[] = [];
 
@@ -118,9 +122,51 @@ refuses(
   "a failure without a readable body (network) is refused",
 );
 
+// 3. Release.
+check(
+  releaseState({ exitCode: 0, stdout: JSON.stringify({ tag_name: "v0.1.0" }) }, "v0.1.0") ===
+    "exists",
+  "a release of the tag exists",
+);
+check(
+  releaseState(
+    { exitCode: 1, stdout: JSON.stringify({ message: "Not Found", status: "404" }) },
+    "v0.1.0",
+  ) === "missing",
+  "404 Not Found is missing",
+);
+refuses(
+  () => releaseState({ exitCode: 0, stdout: JSON.stringify({ tag_name: "v0.0.9" }) }, "v0.1.0"),
+  /v0\.0\.9/,
+  "a release of another tag is refused",
+);
+for (const [status, message] of [
+  ["401", "Bad credentials"],
+  ["403", "Resource not accessible by integration"],
+  ["502", "Bad Gateway"],
+]) {
+  refuses(
+    () => releaseState({ exitCode: 1, stdout: JSON.stringify({ message, status }) }, "v0.1.0"),
+    new RegExp(status!),
+    `HTTP ${status} ${message} is refused, not read as missing`,
+  );
+}
+refuses(
+  () => releaseState({ exitCode: 1, stdout: "" }, "v0.1.0"),
+  /release lookup failed/,
+  "a failure without a readable body (network) is refused",
+);
+refuses(
+  () => releaseState({ exitCode: 0, stdout: "<html>proxy</html>" }, "v0.1.0"),
+  /unreadable/,
+  "unreadable output is refused",
+);
+
 if (failures.length > 0) {
   for (const failure of failures) console.error(`FAIL: ${failure}`);
   process.exitCode = 1;
 } else {
-  console.log("Release state: registry and tag lookups tell missing from failed and foreign.");
+  console.log(
+    "Release state: registry, tag and release lookups tell missing from failed and foreign.",
+  );
 }

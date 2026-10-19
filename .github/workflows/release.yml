@@ -124,6 +124,8 @@ jobs:
 
       # Resumes a partial release: a tag already on this commit is reused, a release is accepted
       # as done only when its tag is on this commit, and a tag elsewhere fails (tag-state).
+      # tag-state runs first: it proves the repository reachable, which release-state relies on
+      # to read a 404 as "no release" rather than as an access failure.
       - name: Create the tag and the GitHub Release unless they exist
         env:
           GH_TOKEN: ${{ github.token }}
@@ -132,7 +134,8 @@ jobs:
           set -euo pipefail
           tag="v${RELEASE_VERSION}"
           state="$(vp exec bun scripts/release.ts tag-state "${RELEASE_VERSION}" "${GITHUB_SHA}")"
-          if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" > /dev/null 2>&1; then
+          release="$(vp exec bun scripts/release.ts release-state "${RELEASE_VERSION}")"
+          if [[ "${release}" == "exists" ]]; then
             if [[ "${state}" != "on-commit" ]]; then
               echo "Release ${tag} exists but its tag is not on ${GITHUB_SHA}" >&2
               exit 1
