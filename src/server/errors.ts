@@ -64,8 +64,14 @@ export interface Classified {
  */
 export function classify(err: unknown, driverCall: boolean): Classified {
   const message = err instanceof Error ? err.message : String(err);
-  const plain = (status: number, code: CsmsErrorCode): Classified => ({ status, code, message, headers: {} });
-  if (err instanceof CsmsHttpError) return { status: err.status, code: err.code, message, headers: err.headers };
+  const plain = (status: number, code: CsmsErrorCode): Classified => ({
+    status,
+    code,
+    message,
+    headers: {},
+  });
+  if (err instanceof CsmsHttpError)
+    return { status: err.status, code: err.code, message, headers: err.headers };
   if (err instanceof InvalidInputError) return plain(400, "invalid_input");
   if (err instanceof UnsupportedOperationError) return plain(501, "unsupported_capability");
   if (err instanceof ChargePointNotFoundError) return plain(404, "not_found");

@@ -14,10 +14,7 @@ import type {
   ChargePointRegistration,
   ChargePointSecurityProfile,
 } from "../charge-points";
-import {
-  assertNever,
-  type CsmsOperation16,
-} from "../contracts";
+import { assertNever, type CsmsOperation16 } from "../contracts";
 import { decodeHtml } from "./html-form";
 
 /**
@@ -65,9 +62,7 @@ export interface ChargingProfileFields {
  * `RELATIVE` avoids a startSchedule, which SteVe requires for `ABSOLUTE` and
  * which would age out of validity between runs.
  */
-export function chargingProfileForm(
-  profile: ChargingProfileFields,
-): Record<string, string> {
+export function chargingProfileForm(profile: ChargingProfileFields): Record<string, string> {
   return {
     description: profile.description,
     stackLevel: "0",
@@ -106,7 +101,10 @@ export interface ChargePointFormChange {
   readonly chargeBoxId?: string;
   readonly registration?: ChargePointRegistration;
   /** `authPassword` empty leaves SteVe's stored password unchanged -- it is never a way to clear it. */
-  readonly security?: { readonly profile: ChargePointSecurityProfile; readonly authPassword: string };
+  readonly security?: {
+    readonly profile: ChargePointSecurityProfile;
+    readonly authPassword: string;
+  };
   /** `null` posts an empty description, which SteVe stores as none. */
   readonly description?: string | null;
 }
@@ -114,7 +112,8 @@ export interface ChargePointFormChange {
 /** Applies `change` to a charge-point form read off the add or details page. */
 export function fillChargePointForm(fields: URLSearchParams, change: ChargePointFormChange): void {
   if (change.chargeBoxId !== undefined) fields.set("chargeBoxId", change.chargeBoxId);
-  if (change.registration !== undefined) fields.set("registrationStatus", REGISTRATION_STATUS[change.registration]);
+  if (change.registration !== undefined)
+    fields.set("registrationStatus", REGISTRATION_STATUS[change.registration]);
   if (change.security !== undefined) {
     fields.set("securityProfile", `Profile_${change.security.profile}`);
     fields.set("authPassword", change.security.authPassword);
@@ -159,8 +158,11 @@ export function chargePointFromForm(fields: URLSearchParams): ChargePointDetails
  * list, and is consulted only when no link matches raw.
  */
 export function chargeBoxPkOf(listHtml: string, cpId: string): number | undefined {
-  const links = [...listHtml.matchAll(/<a href="[^"]*\/chargepoints\/details\/(\d+)">([^<]*)<\/a>/g)];
-  const link = links.find((candidate) => candidate[2] === cpId) ??
+  const links = [
+    ...listHtml.matchAll(/<a href="[^"]*\/chargepoints\/details\/(\d+)">([^<]*)<\/a>/g),
+  ];
+  const link =
+    links.find((candidate) => candidate[2] === cpId) ??
     links.find((candidate) => decodeHtml(candidate[2]) === cpId);
   return link === undefined ? undefined : Number(link[1]);
 }
@@ -211,8 +213,7 @@ export function toSteveForm(op: CsmsOperation16): {
       return {
         opPath,
         fields: {
-          connectorId:
-            op.connectorId === undefined ? "" : String(op.connectorId),
+          connectorId: op.connectorId === undefined ? "" : String(op.connectorId),
           idTag: op.idTag,
           chargingProfilePk: op.chargingProfile ?? "",
         },
@@ -224,8 +225,7 @@ export function toSteveForm(op: CsmsOperation16): {
         opPath,
         fields: {
           triggerMessage: op.requestedMessage,
-          connectorId:
-            op.connectorId === undefined ? "" : String(op.connectorId),
+          connectorId: op.connectorId === undefined ? "" : String(op.connectorId),
         },
       };
     case "SetChargingProfile":
@@ -270,9 +270,7 @@ export function toSteveForm(op: CsmsOperation16): {
         fields: {
           listVersion: String(op.listVersion),
           updateType: op.updateType.toUpperCase(),
-          addUpdateList: (op.localAuthorizationList ?? [])
-            .map((entry) => entry.idTag)
-            .join(","),
+          addUpdateList: (op.localAuthorizationList ?? []).map((entry) => entry.idTag).join(","),
         },
       };
     case "ReserveNow":

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":disableRateLimiting",
+    ":rebaseStalePrs",
+    ":semanticCommits",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "timezone": "Europe/Paris",
+  "labels": ["dependencies"],
+  "platformAutomerge": true,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true,
+    "automergeType": "pr"
+  },
+  "packageRules": [
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Bun moves as one: the packageManager pin, engines.bun and @types/bun.",
+      "matchPackageNames": ["bun", "@types/bun"],
+      "groupName": "bun"
+    },
+    {
+      "description": "commitlint CLI and its conventional preset share a version.",
+      "matchPackageNames": ["@commitlint/**"],
+      "groupName": "commitlint"
+    },
+    {
+      "description": "A TypeScript bump can change the emitted declarations: types/ then needs `bun run build:types`, which Renovate cannot run. Review by hand.",
+      "matchPackageNames": ["typescript"],
+      "automerge": false
+    },
+    {
+      "description": "Vite+ bundles Oxlint and Oxfmt: a bump can bring new lint findings or a reformat. Review by hand.",
+      "matchPackageNames": ["vite-plus"],
+      "automerge": false
+    }
+  ]
+}

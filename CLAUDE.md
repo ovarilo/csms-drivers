@@ -12,17 +12,25 @@ Consumers install it as a pinned git dependency (`bun add github:ovarilo/csms-dr
 
 ```sh
 bun install
-bun run typecheck        # tsc --noEmit over src/, tests/, examples/
+bunx vp config --no-agent # once: installs the pre-commit (vp staged) and commit-msg (commitlint) hooks
+bun run check            # vp check (Oxfmt + Oxlint) + typecheck + test + package content: what CI runs
+bun run format           # Oxfmt rewrite
+bun run typecheck        # tsc --noEmit over src/, tests/, examples/, scripts/
 bun run test             # boundary guard, committed-types check, every test, the example
 bun run build:types      # regenerate types/ — required after any public API change
 bun tests/csms-server.ts # a single test: each test file is a standalone script
+bun scripts/release.ts prepare X.Y.Z # release PR: dates CHANGELOG, bumps package.json
 ```
+
+Commits follow Conventional Commits (commitlint in the hook and in CI, PR title included). `CHANGELOG.md` follows Keep a Changelog 1.1.0, not Common Changelog: add an entry under `## [Unreleased]` with each notable change. A release is the `Release` workflow dispatched on `main` (see README "Releasing"): it publishes to GitHub Packages, then tags `vX.Y.Z`.
 
 Tests are plain Bun scripts, not a test runner. Each one collects failures through `check(...)`, prints them all at the end and exits 1 if there are any. The file header states the PROPERTY it guards, in numbered parts. Add a row to the matching file rather than creating a framework.
 
 ## Invariants enforced by scripts
 
 - **`types/` is generated but committed** (a git dependency does not run `prepare` under Bun). `scripts/types-current.sh` rebuilds into a temporary directory and diffs, so any change to an exported signature needs `bun run build:types` and a commit of `types/`.
+- **Vite+ never touches `types/`**: `vite.config.ts` excludes it from Oxfmt and Oxlint, since `types-current.sh` diffs it byte for byte. tsc 5.9 is the only type-check (`typeAware` lint rules, no `typeCheck`). No `prepare` script: git-dependency consumers would run it without Vite+.
+- **`scripts/check-package.ts`**: the `npm pack` listing carries every exports target and no development file.
 - **`scripts/boundary.sh`**:
   - every import under `src/` is relative or `node:*`, never a package;
   - `src/server/` may import only its siblings and `../contracts`, `../models`, `../charge-points`, never a concrete driver.

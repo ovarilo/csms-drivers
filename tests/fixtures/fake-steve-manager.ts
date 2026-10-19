@@ -31,7 +31,16 @@ const CONTEXT = "/steve/manager";
 
 const REGISTRATION = ["ACCEPTED", "PENDING", "REJECTED"] as const;
 const PROFILES = ["Profile_0", "Profile_1", "Profile_2", "Profile_3"] as const;
-const ADDRESS = ["street", "houseNumber", "zipCode", "city", "country", "latitude", "longitude", "timeZone"] as const;
+const ADDRESS = [
+  "street",
+  "houseNumber",
+  "zipCode",
+  "city",
+  "country",
+  "latitude",
+  "longitude",
+  "timeZone",
+] as const;
 
 export interface FakeStation {
   readonly pk: number;
@@ -82,9 +91,12 @@ function esc(value: string | null | undefined): string {
 }
 
 function html(body: string): Response {
-  return new Response(`<!DOCTYPE html><html><body><div class="content">${body}</div></body></html>`, {
-    headers: { "content-type": "text/html" },
-  });
+  return new Response(
+    `<!DOCTYPE html><html><body><div class="content">${body}</div></body></html>`,
+    {
+      headers: { "content-type": "text/html" },
+    },
+  );
 }
 
 function redirect(location: string, cookie?: string): Response {
@@ -109,14 +121,17 @@ function exceptionPage(exception: string, reason?: string): Response {
 
 function select(name: string, values: readonly string[], selected: string | null): string {
   const options = values
-    .map((value) => `<option value="${esc(value)}"${value === selected ? ' selected="selected"' : ""}>${esc(value)}</option>`)
+    .map(
+      (value) =>
+        `<option value="${esc(value)}"${value === selected ? ' selected="selected"' : ""}>${esc(value)}</option>`,
+    )
     .join("");
   return `<select id="${name}" name="${name}">${options}</select>`;
 }
 
 /** The fields a charge-point form posts, as Spring binds them: trimmed, empty is null. */
 interface Bound {
-  value(key: string): string | null;
+  readonly value: (key: string) => string | null;
   readonly insertFlag: boolean | null;
 }
 
@@ -147,20 +162,30 @@ function chargePointForm(
   const address = station.address ?? {};
   return (
     `<form id="chargePointForm" action="${CONTEXT}/${action}" method="post">` +
-    (details ? `<input id="chargeBoxPk" name="chargeBoxPk" readonly="true" type="hidden" value="${station.pk}"/>` : "") +
+    (details
+      ? `<input id="chargeBoxPk" name="chargeBoxPk" readonly="true" type="hidden" value="${station.pk}"/>`
+      : "") +
     `<table class="userInput">\n` +
     `<input id="chargeBoxId" name="chargeBoxId"${details ? ' readonly="readonly"' : ""} type="text" value="${esc(station.chargeBoxId)}"/>\n` +
     `<input id="insertConnectorStatusAfterTransactionMsg1" name="insertConnectorStatusAfterTransactionMsg" type="checkbox" value="true"` +
     `${station.insertConnectorStatusAfterTransactionMsg ? ' checked="checked"' : ""}/>` +
     `<input type="hidden" name="_insertConnectorStatusAfterTransactionMsg" value="on"/>\n` +
-    select("registrationStatus", REGISTRATION, station.registrationStatus ?? null) + "\n" +
-    select("securityProfile", PROFILES, station.securityProfile ?? "Profile_0") + "\n" +
+    select("registrationStatus", REGISTRATION, station.registrationStatus ?? null) +
+    "\n" +
+    select("securityProfile", PROFILES, station.securityProfile ?? "Profile_0") +
+    "\n" +
     `<input id="authPassword" name="authPassword" placeholder="${station.authPassword ? "Enter new password" : "Enter password"}" ` +
     `type="password" value="${esc(station.echoedPassword)}"/>\n` +
-    (details ? `<input id="address.addressPk" name="address.addressPk" readonly="true" type="hidden" value=""/>` : "") +
+    (details
+      ? `<input id="address.addressPk" name="address.addressPk" readonly="true" type="hidden" value=""/>`
+      : "") +
     ADDRESS.map((member) =>
       member === "country" || member === "timeZone"
-        ? select(`address.${member}`, ["", member === "country" ? "DE" : "Europe/Berlin"], address[member] ?? "")
+        ? select(
+            `address.${member}`,
+            ["", member === "country" ? "DE" : "Europe/Berlin"],
+            address[member] ?? "",
+          )
         : `<input id="address.${member}" name="address.${member}" type="text" value="${esc(address[member])}"/>`,
     ).join("\n") +
     `\n<input id="description" name="description" type="text" value="${esc(station.description)}"/>\n` +
@@ -180,13 +205,15 @@ export function fakeSteveManager(options: FakeSteveOptions = {}): FakeSteveManag
   let expireBeforePost = false;
   let nextPk = 1;
 
-  const byPk = (pk: number): FakeStation | undefined => [...stations.values()].find((station) => station.pk === pk);
+  const byPk = (pk: number): FakeStation | undefined =>
+    [...stations.values()].find((station) => station.pk === pk);
 
   const validate = (bound: Bound, existing: FakeStation | undefined): string[] => {
     const errors: string[] = [];
     const { value } = bound;
     if (value("chargeBoxId") === null) errors.push("ChargeBox ID is required");
-    if (!REGISTRATION.includes(value("registrationStatus") as never)) errors.push("Registration status is required");
+    if (!REGISTRATION.includes(value("registrationStatus") as never))
+      errors.push("Registration status is required");
     if (bound.insertFlag === null) errors.push("must not be null");
     const profile = value("securityProfile");
     if (!PROFILES.includes(profile as never)) errors.push("must not be null");
@@ -194,7 +221,11 @@ export function fakeSteveManager(options: FakeSteveOptions = {}): FakeSteveManag
     if (password !== null && (password.length < 16 || password.length > 20)) {
       errors.push("The field must be between 16 and 20 characters");
     }
-    if ((profile === "Profile_1" || profile === "Profile_2") && password === null && !existing?.authPassword) {
+    if (
+      (profile === "Profile_1" || profile === "Profile_2") &&
+      password === null &&
+      !existing?.authPassword
+    ) {
       errors.push("Security profiles 1 and 2 require the Basic Auth Password to be set");
     }
     return errors;
@@ -237,7 +268,9 @@ export function fakeSteveManager(options: FakeSteveOptions = {}): FakeSteveManag
     station.description = value("description");
     station.note = value("note");
     station.adminAddress = value("adminAddress");
-    station.address = Object.fromEntries(ADDRESS.map((member) => [member, value(`address.${member}`)]));
+    station.address = Object.fromEntries(
+      ADDRESS.map((member) => [member, value(`address.${member}`)]),
+    );
     const password = value("authPassword");
     if (password !== null) station.authPassword = password;
   };
@@ -245,7 +278,8 @@ export function fakeSteveManager(options: FakeSteveOptions = {}): FakeSteveManag
   const fetch: FetchLike = async (input, init) => {
     await Promise.resolve();
     const url = new URL(String(input));
-    if (!url.href.startsWith(`${FAKE_STEVE_BASE}/`)) return new Response("unexpected host", { status: 500 });
+    if (!url.href.startsWith(`${FAKE_STEVE_BASE}/`))
+      return new Response("unexpected host", { status: 500 });
     const path = url.pathname.replace(/^\/manager\//, "");
     const method = init?.method ?? "GET";
     const cookie = /JSESSIONID=([^;]+)/.exec(new Headers(init?.headers).get("cookie") ?? "")?.[1];
@@ -254,13 +288,16 @@ export function fakeSteveManager(options: FakeSteveOptions = {}): FakeSteveManag
     if (path === "signin" && method === "GET") {
       const id = `s${++nextSession}`;
       sessions.set(id, { token: `t${nextSession}`, authenticated: false });
-      const res = html(`<form action="${CONTEXT}/signin" method="post">${csrfInput(`t${nextSession}`)}</form>`);
+      const res = html(
+        `<form action="${CONTEXT}/signin" method="post">${csrfInput(`t${nextSession}`)}</form>`,
+      );
       res.headers.append("set-cookie", `JSESSIONID=${id}; Path=/steve; HttpOnly`);
       return res;
     }
-    const fields = new URLSearchParams(String(init?.body ?? ""));
+    const fields = new URLSearchParams(await new Response(init?.body).text());
     if (path === "signin" && method === "POST") {
-      if (!session || fields.get("_csrf") !== session.token) return new Response("forbidden", { status: 403 });
+      if (!session || fields.get("_csrf") !== session.token)
+        return new Response("forbidden", { status: 403 });
       session.authenticated = true;
       return redirect("/steve/");
     }
@@ -283,19 +320,21 @@ export function fakeSteveManager(options: FakeSteveOptions = {}): FakeSteveManag
         const filter = url.searchParams.get("chargeBoxId") ?? "";
         const rows = [...stations.values()]
           .filter((station) => station.chargeBoxId.includes(filter))
-          .map((station) =>
-            // Unescaped: chargepoints.jsp writes `${cp.chargeBoxId}` raw, while
-            // the details page's form tag escapes the same id.
-            `<tr><td><a href="${CONTEXT}/chargepoints/details/${station.pk}">${station.chargeBoxId}</a></td>` +
-            `<td><form id="command" action="${CONTEXT}/chargepoints/delete/${station.pk}" method="post">` +
-            `<input type="submit" class="redSubmit" value="Delete">${csrfInput(session.token)}</form></td></tr>`,
+          .map(
+            (station) =>
+              // Unescaped: chargepoints.jsp writes `${cp.chargeBoxId}` raw, while
+              // the details page's form tag escapes the same id.
+              `<tr><td><a href="${CONTEXT}/chargepoints/details/${station.pk}">${station.chargeBoxId}</a></td>` +
+              `<td><form id="command" action="${CONTEXT}/chargepoints/delete/${station.pk}" method="post">` +
+              `<input type="submit" class="redSubmit" value="Delete">${csrfInput(session.token)}</form></td></tr>`,
           );
         return html(`<table class="res"><tbody>${rows.join("\n")}</tbody></table>`);
       }
       const details = /^chargepoints\/details\/(\d+)$/.exec(path);
       if (details) {
         const station = byPk(Number(details[1]));
-        if (!station) return exceptionPage("de.rwth.idsg.steve.SteveException: Charge point not found");
+        if (!station)
+          return exceptionPage("de.rwth.idsg.steve.SteveException: Charge point not found");
         return html(chargePointForm("update", session.token, station));
       }
       return new Response("not found", { status: 404 });
@@ -355,7 +394,8 @@ export function fakeSteveManager(options: FakeSteveOptions = {}): FakeSteveManag
     const deletion = /^chargepoints\/delete\/(\d+)$/.exec(path);
     if (deletion) {
       const station = byPk(Number(deletion[1]));
-      if (!station) return exceptionPage("de.rwth.idsg.steve.SteveException: Charge point not found");
+      if (!station)
+        return exceptionPage("de.rwth.idsg.steve.SteveException: Charge point not found");
       stations.delete(station.chargeBoxId);
       return redirect(`${CONTEXT}/chargepoints`);
     }
@@ -369,7 +409,8 @@ export function fakeSteveManager(options: FakeSteveOptions = {}): FakeSteveManag
     authenticates(cpId, password) {
       const station = stations.get(cpId);
       if (!station) return false;
-      if (station.securityProfile !== "Profile_1" && station.securityProfile !== "Profile_2") return true;
+      if (station.securityProfile !== "Profile_1" && station.securityProfile !== "Profile_2")
+        return true;
       return station.authPassword !== null && password === station.authPassword;
     },
     expireSessionBeforeNextPost() {

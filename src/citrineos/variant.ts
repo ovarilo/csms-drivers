@@ -46,16 +46,21 @@ const UNROUTED_16: Readonly<Record<CitrineVariant, ReadonlyMap<CsmsOperation16Ac
   ]),
 };
 
-const UNROUTED_201: Readonly<Record<CitrineVariant, ReadonlyMap<CsmsOperation201Action, string>>> = {
-  v2: new Map(),
-  v1: new Map(CSMS_OPERATION_201_ACTIONS.map((action) => [action, NO_OCPP_201_ON_V1])),
-};
+const UNROUTED_201: Readonly<Record<CitrineVariant, ReadonlyMap<CsmsOperation201Action, string>>> =
+  {
+    v2: new Map(),
+    v1: new Map(CSMS_OPERATION_201_ACTIONS.map((action) => [action, NO_OCPP_201_ON_V1])),
+  };
 
-export function unroutedActions(variant: CitrineVariant): ReadonlyMap<CsmsOperation16Action, string> {
+export function unroutedActions(
+  variant: CitrineVariant,
+): ReadonlyMap<CsmsOperation16Action, string> {
   return UNROUTED_16[variant];
 }
 
-export function unroutedActions201(variant: CitrineVariant): ReadonlyMap<CsmsOperation201Action, string> {
+export function unroutedActions201(
+  variant: CitrineVariant,
+): ReadonlyMap<CsmsOperation201Action, string> {
   return UNROUTED_201[variant];
 }
 

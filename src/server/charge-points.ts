@@ -15,7 +15,11 @@ import type {
 } from "../charge-points";
 import { InvalidInputError, literals, ObjectReader, present } from "./decode";
 
-const REGISTRATIONS = literals<ChargePointRegistration>({ Accepted: true, Pending: true, Rejected: true });
+const REGISTRATIONS = literals<ChargePointRegistration>({
+  Accepted: true,
+  Pending: true,
+  Rejected: true,
+});
 const PROFILES: readonly ChargePointSecurityProfile[] = Object.keys({
   0: true,
   1: true,
@@ -27,7 +31,8 @@ function security(r: ObjectReader): ChargePointSecurity {
   const profile = r.oneOf("profile", PROFILES);
   if (profile === 1 || profile === 2) {
     const basicAuthPassword = r.string("basicAuthPassword");
-    if (basicAuthPassword === "") throw new InvalidInputError("security.basicAuthPassword must not be empty");
+    if (basicAuthPassword === "")
+      throw new InvalidInputError("security.basicAuthPassword must not be empty");
     return { profile, basicAuthPassword };
   }
   // Profiles 0 and 3 carry no password; one sent anyway is refused by done().

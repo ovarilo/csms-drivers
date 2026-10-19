@@ -65,7 +65,9 @@ import type { SteveUiOps } from "./ui-client";
 
 /** Every profile SteVe's form offers. 2 and 3 need TLS on the OCPP endpoint,
  *  which is the deployment's concern; the record accepts them regardless. */
-export const STEVE_CHARGE_POINT_PROFILES: ReadonlySet<ChargePointSecurityProfile> = new Set([0, 1, 2, 3]);
+export const STEVE_CHARGE_POINT_PROFILES: ReadonlySet<ChargePointSecurityProfile> = new Set([
+  0, 1, 2, 3,
+]);
 
 /**
  * A password nobody holds: 15 random bytes, base64url, so 20 characters --
@@ -73,7 +75,9 @@ export const STEVE_CHARGE_POINT_PROFILES: ReadonlySet<ChargePointSecurityProfile
  */
 export function unknowablePassword(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(15));
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_");
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
 }
 
 /**
@@ -94,7 +98,10 @@ function steveSecurity(
 export function steveChargePoints(ui: SteveUiOps): CsmsChargePointAdmin {
   const refuseUndeclared = (method: string, profile: ChargePointSecurityProfile): void => {
     if (!STEVE_CHARGE_POINT_PROFILES.has(profile)) {
-      throw new UnsupportedOperationError(`chargePoints.${method}`, `security profile ${profile} is not supported`);
+      throw new UnsupportedOperationError(
+        `chargePoints.${method}`,
+        `security profile ${profile} is not supported`,
+      );
     }
   };
   const pkOf = async (cpId: string): Promise<number | undefined> =>
@@ -103,7 +110,9 @@ export function steveChargePoints(ui: SteveUiOps): CsmsChargePointAdmin {
     const form = readForm(await ui.page(PAGES.details(chargeBoxPk)), PAGES.updateAction);
     const read = form && chargePointFromForm(form);
     if (!read || read.id !== cpId) {
-      throw new Error(`steve: the details page of ${cpId} (chargeBoxPk ${chargeBoxPk}) does not read as a charge point`);
+      throw new Error(
+        `steve: the details page of ${cpId} (chargeBoxPk ${chargeBoxPk}) does not read as a charge point`,
+      );
     }
     return read;
   };
@@ -115,17 +124,27 @@ export function steveChargePoints(ui: SteveUiOps): CsmsChargePointAdmin {
    * SteVe redirects an update that matched no row exactly as it redirects one
    * that did, so a write is only done when the members it set read back.
    */
-  const readBack = async (cpId: string, method: string, change: ChargePointFormChange, chargeBoxPk?: number): Promise<void> => {
+  const readBack = async (
+    cpId: string,
+    method: string,
+    change: ChargePointFormChange,
+    chargeBoxPk?: number,
+  ): Promise<void> => {
     const read = chargeBoxPk === undefined ? await get(cpId) : await details(cpId, chargeBoxPk);
     if (read === null) {
-      throw new Error(`steve: chargePoints.${method} of ${cpId} was accepted, but the station cannot be read back`);
+      throw new Error(
+        `steve: chargePoints.${method} of ${cpId} was accepted, but the station cannot be read back`,
+      );
     }
     const differs =
       (change.registration !== undefined && read.registration !== change.registration) ||
       (change.security !== undefined && read.security.profile !== change.security.profile) ||
-      (change.description !== undefined && read.description !== steveStoredDescription(change.description));
+      (change.description !== undefined &&
+        read.description !== steveStoredDescription(change.description));
     if (differs) {
-      throw new Error(`steve: chargePoints.${method} of ${cpId} was accepted, but the station does not read back as written`);
+      throw new Error(
+        `steve: chargePoints.${method} of ${cpId} was accepted, but the station does not read back as written`,
+      );
     }
   };
 
@@ -136,7 +155,8 @@ export function steveChargePoints(ui: SteveUiOps): CsmsChargePointAdmin {
       // `security` omitted is profile 0, which needs no password and stores none.
       const security = definition.security ?? { profile: 0 };
       refuseUndeclared("create", security.profile);
-      if ((await pkOf(definition.id)) !== undefined) throw new ChargePointAlreadyExistsError(definition.id);
+      if ((await pkOf(definition.id)) !== undefined)
+        throw new ChargePointAlreadyExistsError(definition.id);
       const change: ChargePointFormChange = {
         chargeBoxId: definition.id,
         registration: definition.registration ?? "Accepted",
@@ -144,12 +164,18 @@ export function steveChargePoints(ui: SteveUiOps): CsmsChargePointAdmin {
         description: definition.description ?? null,
       };
       try {
-        await ui.submitForm(PAGES.add, PAGES.addAction, { submitter: "add", fill: (fields) => fillChargePointForm(fields, change) });
+        await ui.submitForm(PAGES.add, PAGES.addAction, {
+          submitter: "add",
+          fill: (fields) => fillChargePointForm(fields, change),
+        });
       } catch (error) {
         // Refused, and the id exists now: another create won the race past
         // the check above. Asked of the list rather than of the refusal page,
         // whose duplicate is a constraint-violation trace.
-        if (!(error instanceof CsmsNotDispatchedError) && (await pkOf(definition.id)) !== undefined) {
+        if (
+          !(error instanceof CsmsNotDispatchedError) &&
+          (await pkOf(definition.id)) !== undefined
+        ) {
           throw new ChargePointAlreadyExistsError(definition.id);
         }
         throw error;
@@ -179,7 +205,9 @@ export function steveChargePoints(ui: SteveUiOps): CsmsChargePointAdmin {
       if (chargeBoxPk === undefined) return;
       await ui.submitForm(PAGES.query(cpId), PAGES.deleteAction(chargeBoxPk));
       if ((await pkOf(cpId)) !== undefined) {
-        throw new Error(`steve: chargePoints.delete of ${cpId} was accepted, but the station is still listed`);
+        throw new Error(
+          `steve: chargePoints.delete of ${cpId} was accepted, but the station is still listed`,
+        );
       }
     },
   };

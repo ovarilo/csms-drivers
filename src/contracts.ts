@@ -22,10 +22,7 @@ export type ResetType16 = "Hard" | "Soft";
 export type AvailabilityType = "Operative" | "Inoperative";
 export type UpdateType = "Full" | "Differential";
 export type ChargingRateUnit = "A" | "W";
-export type ChargingProfilePurpose =
-  | "ChargePointMaxProfile"
-  | "TxDefaultProfile"
-  | "TxProfile";
+export type ChargingProfilePurpose = "ChargePointMaxProfile" | "TxDefaultProfile" | "TxProfile";
 export type MessageTrigger =
   | "BootNotification"
   | "DiagnosticsStatusNotification"
@@ -33,12 +30,7 @@ export type MessageTrigger =
   | "Heartbeat"
   | "MeterValues"
   | "StatusNotification";
-export type AuthorizationStatus =
-  | "Accepted"
-  | "Blocked"
-  | "Expired"
-  | "Invalid"
-  | "ConcurrentTx";
+export type AuthorizationStatus = "Accepted" | "Blocked" | "Expired" | "Invalid" | "ConcurrentTx";
 
 /**
  * One `AuthorizationData` entry of a SendLocalList payload.
@@ -196,9 +188,7 @@ export type CsmsOperation16Action = CsmsOperation16["action"];
 // can never go red.
 function everyOneOf<U extends string>() {
   return <const T extends readonly U[]>(
-    list: [U] extends [T[number]]
-      ? T
-      : `this list omits ${Exclude<U, T[number]>}`,
+    list: [U] extends [T[number]] ? T : `this list omits ${Exclude<U, T[number]>}`,
   ): T => list as T;
 }
 
@@ -522,10 +512,7 @@ export interface ChargingSchedule201 {
   id: number;
   chargingRateUnit: ChargingRateUnit201;
   /** 1..N on the wire, and the first period's `startPeriod` must be 0. */
-  chargingSchedulePeriod: [
-    ChargingSchedulePeriod201,
-    ...ChargingSchedulePeriod201[],
-  ];
+  chargingSchedulePeriod: [ChargingSchedulePeriod201, ...ChargingSchedulePeriod201[]];
   startSchedule?: Date;
   duration?: number;
   minChargingRate?: number;
@@ -1007,10 +994,7 @@ export const CSMS_OPERATION_201_ACTIONS = everyOneOf<CsmsOperation201Action>()([
  * one.
  */
 export const SAMPLE_OPERATION_201: {
-  readonly [A in CsmsOperation201Action]: Extract<
-    CsmsOperation201,
-    { action: A }
-  >;
+  readonly [A in CsmsOperation201Action]: Extract<CsmsOperation201, { action: A }>;
 } = {
   Reset: { action: "Reset", type: "Immediate" },
   GetVariables: {
@@ -1243,10 +1227,7 @@ export class CsmsNotDispatchedError extends Error {
  * The default is always the global, resolved PER CALL rather than captured at
  * construction -- the same principle the `defaultXConfig` resolvers follow.
  */
-export type FetchLike = (
-  input: string,
-  init?: RequestInit,
-) => Promise<Response>;
+export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 /**
  * Compile-time exhaustiveness guard for a driver's `switch (op.action)`.

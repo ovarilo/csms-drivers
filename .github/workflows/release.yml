@@ -1,0 +1,149 @@
+name: Release
+
+# Dispatched from main once the release pull request (`bun scripts/release.ts prepare X.Y.Z`,
+# commit `chore(release): X.Y.Z`) is merged. Validates that package.json and CHANGELOG.md agree,
+# runs the full gate (`bun run check`), publishes to GitHub Packages, then creates the `vX.Y.Z`
+# tag and the GitHub Release whose body is the changelog section. Every publishing step is idempotent: re-run a
+# failed run (`gh run rerun <id> --failed`) rather than dispatching again.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (X.Y.Z or X.Y.Z-prerelease), equal to package.json#version
+        required: true
+        type: string
+      dry_run:
+        description: Validate and run the gate only; publish nothing, tag nothing
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  RELEASE_VERSION: ${{ inputs.version }}
+  PACKAGE_NAME: "@ovarilo/csms-drivers"
+  REGISTRY: https://npm.pkg.github.com
+
+jobs:
+  validate:
+    name: Validate and gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      notes: ${{ steps.notes.outputs.notes }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      # Refused unless package.json is the version and CHANGELOG.md has its dated, non-empty section.
+      - name: Validate version and extract the release notes
+        id: notes
+        run: |
+          set -euo pipefail
+          [[ "${GITHUB_REF}" == "refs/heads/main" ]] || { echo "Releases run from main only" >&2; exit 1; }
+          notes="$(vp exec bun scripts/release.ts notes "${RELEASE_VERSION}")"
+          delimiter="notes-$(openssl rand -hex 8)"
+          printf 'notes<<%s\n%s\n%s\n' "${delimiter}" "${notes}" "${delimiter}" >> "${GITHUB_OUTPUT}"
+
+      # Fails when the tag is on another commit, or when the lookup itself fails.
+      - name: Check the tag is free or already on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: vp exec bun scripts/release.ts tag-state "${RELEASE_VERSION}" "${GITHUB_SHA}"
+
+      - name: Check
+        run: vp exec bun run check
+
+  publish:
+    name: Publish to GitHub Packages
+    needs: validate
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      # Skips a version already published from this commit; fails on one published from another
+      # commit and on any registry error other than "not found".
+      - name: Publish unless already published
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          npmrc="${RUNNER_TEMP}/.npmrc"
+          {
+            echo "@ovarilo:registry=${REGISTRY}"
+            echo "//npm.pkg.github.com/:_authToken=\${NODE_AUTH_TOKEN}"
+          } > "${npmrc}"
+          export NPM_CONFIG_USERCONFIG="${npmrc}"
+          state="$(vp exec bun scripts/release.ts registry-state "${RELEASE_VERSION}" "${GITHUB_SHA}")"
+          if [[ "${state}" == "published" ]]; then
+            echo "${PACKAGE_NAME}@${RELEASE_VERSION} is already published from ${GITHUB_SHA}"
+            exit 0
+          fi
+          tag=latest
+          [[ "${RELEASE_VERSION}" != *-* ]] || tag=next
+          npm publish --ignore-scripts --tag "${tag}"
+
+  release:
+    name: Tag and GitHub Release
+    needs: [validate, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      # Resumes a partial release: a tag already on this commit is reused, a release is accepted
+      # as done only when its tag is on this commit, and a tag elsewhere fails (tag-state).
+      # tag-state runs first: it proves the repository reachable, which release-state relies on
+      # to read a 404 as "no release" rather than as an access failure.
+      - name: Create the tag and the GitHub Release unless they exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ needs.validate.outputs.notes }}
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+          state="$(vp exec bun scripts/release.ts tag-state "${RELEASE_VERSION}" "${GITHUB_SHA}")"
+          release="$(vp exec bun scripts/release.ts release-state "${RELEASE_VERSION}")"
+          if [[ "${release}" == "exists" ]]; then
+            if [[ "${state}" != "on-commit" ]]; then
+              echo "Release ${tag} exists but its tag is not on ${GITHUB_SHA}" >&2
+              exit 1
+            fi
+            echo "Release ${tag} already exists on ${GITHUB_SHA}"
+            exit 0
+          fi
+          prerelease=()
+          [[ "${RELEASE_VERSION}" != *-* ]] || prerelease=(--prerelease)
+          printf '%s\n' "${NOTES}" | gh release create "${tag}" --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" --title "${tag}" --notes-file - "${prerelease[@]}"

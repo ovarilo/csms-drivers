@@ -2,3 +2,4 @@ node_modules/
 .codegraph/
 .remember/
 .serena/
+.vite-hooks/_

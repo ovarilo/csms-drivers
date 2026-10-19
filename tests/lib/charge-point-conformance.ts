@@ -45,7 +45,8 @@ export async function clearConformanceStations(admin: CsmsChargePointAdmin): Pro
 /** Every rule the conformance check asks about. Typed, so a check cannot ask
  *  about a rule part 5 does not hold a flawed copy to. */
 export const RULE = {
-  declaredWhenImplemented: "capabilities.chargePoints is declared exactly when chargePoints is implemented",
+  declaredWhenImplemented:
+    "capabilities.chargePoints is declared exactly when chargePoints is implemented",
   declaresAProfile: "a declared admin surface names at least one security profile",
   getMissingIsNull: "get of a missing id is null",
   createStores: "create stores the registration, security profile and description it is given",
@@ -65,21 +66,29 @@ export const RULE = {
   deleteMissingResolves: "delete of a missing id resolves",
   defaultRegistration: "an omitted registration reads back Accepted",
   defaultSecurity: "omitted security reads back profile 0",
-  omittedSecurityNeedsProfile0: "create with omitted security throws UnsupportedOperationError when profile 0 is not declared",
+  omittedSecurityNeedsProfile0:
+    "create with omitted security throws UnsupportedOperationError when profile 0 is not declared",
   refusedDefaultStoresNothing: "a create refused for its omitted security stores nothing",
   passwordWriteOnly: "no read returns a password-named member",
-  createRefusesUndeclared: "create with an undeclared security profile throws UnsupportedOperationError",
+  createRefusesUndeclared:
+    "create with an undeclared security profile throws UnsupportedOperationError",
   refusedCreateStoresNothing: "a refused create stores nothing",
-  updateRefusesUndeclared: "update to an undeclared security profile throws UnsupportedOperationError",
+  updateRefusesUndeclared:
+    "update to an undeclared security profile throws UnsupportedOperationError",
   refusedUpdateChangesNothing: "a refused update changes nothing",
 } as const;
 export type Rule = (typeof RULE)[keyof typeof RULE];
 
 export const ALL_PROFILES: readonly ChargePointSecurityProfile[] = [0, 1, 2, 3];
 
-
-export function rejectsWith(action: () => Promise<unknown>, type: abstract new (...args: never[]) => Error): Promise<boolean> {
-  return action().then(() => false, (error) => error instanceof type);
+export function rejectsWith(
+  action: () => Promise<unknown>,
+  type: abstract new (...args: never[]) => Error,
+): Promise<boolean> {
+  return action().then(
+    () => false,
+    (error) => error instanceof type,
+  );
 }
 
 export function securityFor(profile: ChargePointSecurityProfile): ChargePointSecurity {
@@ -101,8 +110,11 @@ function observable(value: unknown): string {
 /** Any member named like a password, at any depth, whatever its value -- a
  *  masked `"***"` is still the contract returning authentication material. */
 function exposesPassword(value: unknown): boolean {
-  return value !== null && typeof value === "object" &&
-    Object.entries(value).some(([key, member]) => /password/i.test(key) || exposesPassword(member));
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    Object.entries(value).some(([key, member]) => /password/i.test(key) || exposesPassword(member))
+  );
 }
 
 /** Every rule `driver` breaks; empty when it conforms. */
@@ -162,22 +174,25 @@ async function exerciseLifecycle(
     security: securityFor(profile),
     description: "first",
   };
-  expect(await read(station.id) === null, RULE.getMissingIsNull);
+  expect((await read(station.id)) === null, RULE.getMissingIsNull);
   await admin.create(station);
   const created = await mustRead(station.id);
   expect(
-    created.registration === "Rejected" && created.security.profile === profile && created.description === "first",
+    created.registration === "Rejected" &&
+      created.security.profile === profile &&
+      created.description === "first",
     RULE.createStores,
   );
   expect(created.id === station.id, RULE.readBackKeepsId);
   expect(
     await rejectsWith(
-      () => admin.create({
-        id: station.id,
-        registration: "Accepted",
-        security: securityFor(otherProfile ?? profile),
-        description: "second",
-      }),
+      () =>
+        admin.create({
+          id: station.id,
+          registration: "Accepted",
+          security: securityFor(otherProfile ?? profile),
+          description: "second",
+        }),
       ChargePointAlreadyExistsError,
     ),
     RULE.createExistingThrows,
@@ -203,7 +218,10 @@ async function exerciseLifecycle(
   // password it replaces is not observable here; #155 owns that per driver.
   before = after;
   expect(
-    await admin.update(station.id, { security: securityFor(profile) }).then(() => true, () => false),
+    await admin.update(station.id, { security: securityFor(profile) }).then(
+      () => true,
+      () => false,
+    ),
     RULE.declaredSecurityUpdateResolves,
   );
   after = await mustRead(station.id);
@@ -214,7 +232,10 @@ async function exerciseLifecycle(
     await admin.update(station.id, { security: securityFor(otherProfile) });
     after = await mustRead(station.id);
     expect(after.security.profile === otherProfile, RULE.updateAppliesSecurity);
-    expect(same(after, { ...before, security: { profile: otherProfile } }), RULE.securityUpdateKeepsUnnamed);
+    expect(
+      same(after, { ...before, security: { profile: otherProfile } }),
+      RULE.securityUpdateKeepsUnnamed,
+    );
   }
 
   before = after;
@@ -225,14 +246,23 @@ async function exerciseLifecycle(
   expect(same(after, withoutDescription), RULE.updateKeepsUnnamed);
 
   expect(
-    await rejectsWith(() => admin.update(MISSING, { registration: "Accepted" }), ChargePointNotFoundError),
+    await rejectsWith(
+      () => admin.update(MISSING, { registration: "Accepted" }),
+      ChargePointNotFoundError,
+    ),
     RULE.updateMissingThrows,
   );
-  expect(await read(MISSING) === null, RULE.updateMissingCreatesNothing);
+  expect((await read(MISSING)) === null, RULE.updateMissingCreatesNothing);
 
   await admin.delete(station.id);
-  expect(await read(station.id) === null, RULE.deleteRemoves);
-  expect(await admin.delete(station.id).then(() => true, () => false), RULE.deleteMissingResolves);
+  expect((await read(station.id)) === null, RULE.deleteRemoves);
+  expect(
+    await admin.delete(station.id).then(
+      () => true,
+      () => false,
+    ),
+    RULE.deleteMissingResolves,
+  );
 
   // Part 3, defaults. The registration default does not depend on profile 0.
   await admin.create({ id: STATION_2, security: securityFor(profile) });
@@ -247,7 +277,7 @@ async function exerciseLifecycle(
       await rejectsWith(() => admin.create({ id: STATION_3 }), UnsupportedOperationError),
       RULE.omittedSecurityNeedsProfile0,
     );
-    expect(await read(STATION_3) === null, RULE.refusedDefaultStoresNothing);
+    expect((await read(STATION_3)) === null, RULE.refusedDefaultStoresNothing);
   }
   await admin.delete(STATION_3);
 
@@ -256,17 +286,30 @@ async function exerciseLifecycle(
   const undeclared = ALL_PROFILES.find((candidate) => !profiles.has(candidate));
   if (undeclared !== undefined) {
     expect(
-      await rejectsWith(() => admin.create({ id: STATION_4, security: securityFor(undeclared) }), UnsupportedOperationError),
+      await rejectsWith(
+        () => admin.create({ id: STATION_4, security: securityFor(undeclared) }),
+        UnsupportedOperationError,
+      ),
       RULE.createRefusesUndeclared,
     );
-    expect(await read(STATION_4) === null, RULE.refusedCreateStoresNothing);
+    expect((await read(STATION_4)) === null, RULE.refusedCreateStoresNothing);
     await admin.delete(STATION_4);
 
-    await admin.create({ id: STATION_5, registration: "Rejected", security: securityFor(profile), description: "kept" });
+    await admin.create({
+      id: STATION_5,
+      registration: "Rejected",
+      security: securityFor(profile),
+      description: "kept",
+    });
     before = await mustRead(STATION_5);
     expect(
       await rejectsWith(
-        () => admin.update(STATION_5, { registration: "Accepted", description: "changed", security: securityFor(undeclared) }),
+        () =>
+          admin.update(STATION_5, {
+            registration: "Accepted",
+            description: "changed",
+            security: securityFor(undeclared),
+          }),
         UnsupportedOperationError,
       ),
       RULE.updateRefusesUndeclared,

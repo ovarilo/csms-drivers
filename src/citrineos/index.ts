@@ -30,7 +30,11 @@ export function citrineOsCapabilities(config: CitrineApiConfig): CsmsCapabilitie
   return {
     operations16: new Set(CSMS_OPERATION_16_ACTIONS.filter((action) => !unsupported16.has(action))),
     ...(speaksOcpp201(config.variant)
-      ? { operations201: new Set(CSMS_OPERATION_201_ACTIONS.filter((action) => !unsupported201.has(action))) }
+      ? {
+          operations201: new Set(
+            CSMS_OPERATION_201_ACTIONS.filter((action) => !unsupported201.has(action)),
+          ),
+        }
       : {}),
   };
 }

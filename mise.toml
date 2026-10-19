@@ -1,0 +1,4 @@
+# Tools for the workflow linters (CI job `workflows`). The library itself needs only Bun.
+[tools]
+actionlint = "1.7"
+zizmor = "1.30"

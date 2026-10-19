@@ -47,7 +47,9 @@ export const OPERATION_16_PATHS: Readonly<Record<CsmsOperation16Action, string>>
 };
 
 const ACTION_BY_PATH: ReadonlyMap<string, CsmsOperation16Action> = new Map(
-  (Object.entries(OPERATION_16_PATHS) as [CsmsOperation16Action, string][]).map(([action, path]) => [path, action]),
+  (Object.entries(OPERATION_16_PATHS) as [CsmsOperation16Action, string][]).map(
+    ([action, path]) => [path, action],
+  ),
 );
 
 /** The action a path names, or `undefined` for a path no action has. */
@@ -106,7 +108,11 @@ function arm(action: CsmsOperation16Action, r: ObjectReader): CsmsOperation16 {
     case "ClearCache":
       return { action };
     case "ChangeAvailability":
-      return { action, connectorId: r.int("connectorId"), type: r.oneOf("type", AVAILABILITY_TYPES) };
+      return {
+        action,
+        connectorId: r.int("connectorId"),
+        type: r.oneOf("type", AVAILABILITY_TYPES),
+      };
     case "GetConfiguration":
       return present({ action, keys: r.optStrings("keys") });
     case "ChangeConfiguration":

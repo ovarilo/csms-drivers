@@ -30,7 +30,10 @@ const ENTITIES: Readonly<Record<string, string>> = {
 export function decodeHtml(text: string): string {
   return text.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (entity, body: string) => {
     if (body[0] === "#") {
-      const code = body[1] === "x" || body[1] === "X" ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+      const code =
+        body[1] === "x" || body[1] === "X"
+          ? parseInt(body.slice(2), 16)
+          : parseInt(body.slice(1), 10);
       // Past U+10FFFF no character answers, and fromCodePoint would throw:
       // kept as written, since SteVe lists a charge-box id unescaped and its
       // validator lets `CP&#999999999;` through.
@@ -43,13 +46,16 @@ export function decodeHtml(text: string): string {
 function attributes(tag: string): Map<string, string> {
   const found = new Map<string, string>();
   const body = tag.replace(/^<[a-z]+/i, "").replace(/\/?>$/, "");
-  for (const match of body.matchAll(/([^\s=/>"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)) {
+  for (const match of body.matchAll(
+    /([^\s=/>"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g,
+  )) {
     found.set(match[1].toLowerCase(), decodeHtml(match[2] ?? match[3] ?? match[4] ?? ""));
   }
   return found;
 }
 
-const CONTROL = /<input\b[^>]*>|<select\b[^>]*>[\s\S]*?<\/select>|<textarea\b[^>]*>[\s\S]*?<\/textarea>/gi;
+const CONTROL =
+  /<input\b[^>]*>|<select\b[^>]*>[\s\S]*?<\/select>|<textarea\b[^>]*>[\s\S]*?<\/textarea>/gi;
 const SKIPPED_INPUTS = new Set(["submit", "button", "image", "reset", "file"]);
 
 /** What one control submits; `open` is its start tag and `attrs` its attributes. */
@@ -67,7 +73,10 @@ function controlValues(control: string, open: string, attrs: Map<string, string>
   }
   const options = [...control.matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/gi)].map((option) => {
     const optionAttrs = attributes(`<option${option[1]}>`);
-    return { selected: optionAttrs.has("selected"), value: optionAttrs.get("value") ?? decodeHtml(option[2]).trim() };
+    return {
+      selected: optionAttrs.has("selected"),
+      value: optionAttrs.get("value") ?? decodeHtml(option[2]).trim(),
+    };
   });
   const selected = options.filter((option) => option.selected);
   if (attrs.has("multiple")) return selected.map((option) => option.value);
@@ -83,7 +92,11 @@ function controlValues(control: string, open: string, attrs: Map<string, string>
  * client takes is: `chargepoints/update` matches
  * `action="/steve/manager/chargepoints/update"`.
  */
-export function readForm(html: string, action: string, submitter?: string): URLSearchParams | undefined {
+export function readForm(
+  html: string,
+  action: string,
+  submitter?: string,
+): URLSearchParams | undefined {
   for (const form of html.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form>/gi)) {
     const formAction = attributes(`<form${form[1]}>`).get("action") ?? "";
     if (!formAction.endsWith(`/${action}`)) continue;
@@ -111,11 +124,13 @@ export function readForm(html: string, action: string, submitter?: string): URLS
  * its `value` attributes, and none of that may reach an error message.
  */
 export function pageErrors(html: string): string | undefined {
-  const texts = [...html.matchAll(/<div\b[^>]*class="error"[^>]*>([\s\S]*?)<\/div>/gi)].map((div) =>
-    decodeHtml(div[1].replace(/<[^>]*>/g, " "))
-      .replace(/\s+/g, " ")
-      .replace(/\s*You can go back or, for more detail, view the log\s*$/, "")
-      .trim(),
-  ).filter((text) => text !== "");
+  const texts = [...html.matchAll(/<div\b[^>]*class="error"[^>]*>([\s\S]*?)<\/div>/gi)]
+    .map((div) =>
+      decodeHtml(div[1].replace(/<[^>]*>/g, " "))
+        .replace(/\s+/g, " ")
+        .replace(/\s*You can go back or, for more detail, view the log\s*$/, "")
+        .trim(),
+    )
+    .filter((text) => text !== "");
   return texts.length === 0 ? undefined : texts.join("; ");
 }
