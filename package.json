@@ -52,13 +52,15 @@
     "lint": "vp lint",
     "format": "vp fmt --write",
     "format:check": "vp fmt --check",
-    "test": "bash scripts/boundary.sh && bash scripts/types-current.sh && bun tests/csms-driver-factories.ts && bun tests/csms-driver-charge-points.ts && bun tests/csms-server.ts && bun tests/release-changelog.ts && bun examples/csms-driver-smoke.ts",
-    "check": "vp check && bun run typecheck && bun run test && bash scripts/check-package.sh"
+    "test": "bash scripts/boundary.sh && bash scripts/types-current.sh && bun tests/csms-driver-factories.ts && bun tests/csms-driver-charge-points.ts && bun tests/csms-server.ts && bun tests/release-changelog.ts && bun tests/package-content.ts && bun tests/release-state.ts && bun examples/csms-driver-smoke.ts",
+    "check": "vp check && bun run typecheck && bun run test && bun scripts/check-package.ts"
   },
   "devDependencies": {
     "@commitlint/cli": "21.2.4",
     "@commitlint/config-conventional": "21.2.4",
     "@types/bun": "1.3.14",
+    "@types/semver": "7.8.0",
+    "semver": "7.8.5",
     "typescript": "5.9.2",
     "vite-plus": "1.3.0"
   }

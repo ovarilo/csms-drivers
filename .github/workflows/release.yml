@@ -57,16 +57,11 @@ jobs:
           delimiter="notes-$(openssl rand -hex 8)"
           printf 'notes<<%s\n%s\n%s\n' "${delimiter}" "${notes}" "${delimiter}" >> "${GITHUB_OUTPUT}"
 
+      # Fails when the tag is on another commit, or when the lookup itself fails.
       - name: Check the tag is free or already on this commit
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tagged="$(gh api "repos/${GITHUB_REPOSITORY}/commits/v${RELEASE_VERSION}" --jq .sha 2> /dev/null || true)"
-          if [[ -n "${tagged}" && "${tagged}" != "${GITHUB_SHA}" ]]; then
-            echo "Tag v${RELEASE_VERSION} already points to ${tagged}, not ${GITHUB_SHA}" >&2
-            exit 1
-          fi
+        run: vp exec bun scripts/release.ts tag-state "${RELEASE_VERSION}" "${GITHUB_SHA}"
 
       - name: Check
         run: vp exec bun run check
@@ -86,7 +81,11 @@ jobs:
         with:
           persist-credentials: false
 
-      # The runner's npm is enough: nothing is built, package.json and its files ship as committed.
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      # Skips a version already published from this commit; fails on one published from another
+      # commit and on any registry error other than "not found".
       - name: Publish unless already published
         env:
           NODE_AUTH_TOKEN: ${{ github.token }}
@@ -98,8 +97,9 @@ jobs:
             echo "//npm.pkg.github.com/:_authToken=\${NODE_AUTH_TOKEN}"
           } > "${npmrc}"
           export NPM_CONFIG_USERCONFIG="${npmrc}"
-          if npm view "${PACKAGE_NAME}@${RELEASE_VERSION}" version --registry "${REGISTRY}" > /dev/null 2>&1; then
-            echo "${PACKAGE_NAME}@${RELEASE_VERSION} is already published"
+          state="$(vp exec bun scripts/release.ts registry-state "${RELEASE_VERSION}" "${GITHUB_SHA}")"
+          if [[ "${state}" == "published" ]]; then
+            echo "${PACKAGE_NAME}@${RELEASE_VERSION} is already published from ${GITHUB_SHA}"
             exit 0
           fi
           tag=latest
@@ -110,10 +110,20 @@ jobs:
     name: Tag and GitHub Release
     needs: [validate, publish]
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      # Resumes a partial release: a tag already on this commit is reused, a release is accepted
+      # as done only when its tag is on this commit, and a tag elsewhere fails (tag-state).
       - name: Create the tag and the GitHub Release unless they exist
         env:
           GH_TOKEN: ${{ github.token }}
@@ -121,8 +131,13 @@ jobs:
         run: |
           set -euo pipefail
           tag="v${RELEASE_VERSION}"
+          state="$(vp exec bun scripts/release.ts tag-state "${RELEASE_VERSION}" "${GITHUB_SHA}")"
           if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" > /dev/null 2>&1; then
-            echo "Release ${tag} already exists"
+            if [[ "${state}" != "on-commit" ]]; then
+              echo "Release ${tag} exists but its tag is not on ${GITHUB_SHA}" >&2
+              exit 1
+            fi
+            echo "Release ${tag} already exists on ${GITHUB_SHA}"
             exit 0
           fi
           prerelease=()

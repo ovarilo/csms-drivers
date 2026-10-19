@@ -6,14 +6,19 @@
  *   bun scripts/release.ts prepare X.Y.Z   dates the Unreleased section and bumps package.json
  *   bun scripts/release.ts notes X.Y.Z     prints the X.Y.Z section, the GitHub Release body,
  *                                          refused unless package.json is X.Y.Z
+ *   bun scripts/release.ts registry-state X.Y.Z SHA   prints published | missing
+ *   bun scripts/release.ts tag-state X.Y.Z SHA        prints on-commit | free
  *
  * `prepare` builds the release pull request; the dispatched Release workflow then checks that
- * package.json and the changelog agree, publishes, tags and calls `notes`.
+ * package.json and the changelog agree, publishes, tags and calls `notes`. The two state
+ * commands let a re-run resume a partial release: anything they cannot classify for certain,
+ * or that belongs to another commit, fails the run instead of being skipped or overwritten.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
 
-const RELEASE_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+import semver from "semver";
+
 const UNRELEASED_HEADING = /^## \[Unreleased\][^\n]*$/m;
 const UNRELEASED_LINK = /^\[unreleased\]: (.+)$/im;
 
@@ -21,8 +26,9 @@ function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** Strict SemVer 2.0.0, as written (no `v`, no padding), and no build metadata: npm drops it. */
 function assertVersion(version: string): void {
-  if (!RELEASE_VERSION.test(version)) {
+  if (semver.valid(version) !== version || version.includes("+")) {
     throw new Error(`${version} is not a release version (X.Y.Z or X.Y.Z-prerelease)`);
   }
 }
@@ -30,7 +36,7 @@ function assertVersion(version: string): void {
 /** Refuses a malformed version and one lower than package.json's (equal is the first release). */
 export function assertReleasable(version: string, current: string): void {
   assertVersion(version);
-  if (Bun.semver.order(version, current) < 0) {
+  if (semver.lt(version, current)) {
     throw new Error(`${version} is lower than package.json version ${current}`);
   }
 }
@@ -89,6 +95,83 @@ export function releaseNotes(changelog: string, version: string): string {
   return body;
 }
 
+/** What a command printed and how it exited. */
+export interface CommandResult {
+  readonly exitCode: number;
+  readonly stdout: string;
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function field(value: unknown, key: string): unknown {
+  return value !== null && typeof value === "object"
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+}
+
+/**
+ * Reads `npm view <pkg>@X.Y.Z version gitHead --json`. Only E404 means "not published": npm also
+ * answers E404 for a package the token cannot see, but the publishing token has packages:write
+ * on it, and a wrong guess there makes `npm publish` fail rather than pass silently.
+ */
+export function registryState(view: CommandResult, sha: string): "published" | "missing" {
+  const output = parseJson(view.stdout);
+  if (view.exitCode !== 0) {
+    const code = field(field(output, "error"), "code");
+    if (code === "E404") return "missing";
+    const summary = field(field(output, "error"), "summary");
+    throw new Error(
+      typeof code === "string"
+        ? `npm view failed with ${code}: ${String(summary)}`
+        : `npm view failed (exit ${view.exitCode}) without a readable error`,
+    );
+  }
+  if (output === undefined) throw new Error(`npm view printed unreadable output: ${view.stdout}`);
+  const gitHead = field(output, "gitHead");
+  if (typeof gitHead !== "string") {
+    throw new Error("the published version has no gitHead: cannot tell which commit it came from");
+  }
+  if (gitHead !== sha)
+    throw new Error(`the version is already published from ${gitHead}, not ${sha}`);
+  return "published";
+}
+
+/**
+ * Reads `gh api repos/<repo>/commits/vX.Y.Z` (the tag, peeled to its commit). Only GitHub's 422
+ * "No commit found" means the tag does not exist; any other failure is not a free tag.
+ */
+export function tagState(lookup: CommandResult, sha: string): "on-commit" | "free" {
+  const output = parseJson(lookup.stdout);
+  if (lookup.exitCode !== 0) {
+    const status = field(output, "status");
+    const message = field(output, "message");
+    if (status === "422" && typeof message === "string" && message.startsWith("No commit found")) {
+      return "free";
+    }
+    throw new Error(
+      typeof status === "string"
+        ? `tag lookup failed with HTTP ${status}: ${String(message)}`
+        : `tag lookup failed (exit ${lookup.exitCode}) without a readable error`,
+    );
+  }
+  const tagged = field(output, "sha");
+  if (typeof tagged !== "string")
+    throw new Error(`tag lookup printed unreadable output: ${lookup.stdout}`);
+  if (tagged !== sha) throw new Error(`the tag already points to ${tagged}, not ${sha}`);
+  return "on-commit";
+}
+
+function run(argv: string[]): CommandResult {
+  const result = Bun.spawnSync(argv, { stderr: "inherit" });
+  return { exitCode: result.exitCode, stdout: result.stdout.toString() };
+}
+
 function repoUrl(pkg: { repository?: { url?: string } }): string {
   const url = pkg.repository?.url;
   if (!url) throw new Error("package.json has no repository.url");
@@ -96,15 +179,41 @@ function repoUrl(pkg: { repository?: { url?: string } }): string {
 }
 
 if (import.meta.main) {
-  const [command, version] = process.argv.slice(2);
+  const [command, version, sha] = process.argv.slice(2);
   try {
-    if (!version || (command !== "prepare" && command !== "notes")) {
-      throw new Error("usage: bun scripts/release.ts <prepare|notes> X.Y.Z");
+    const stateCommand = command === "registry-state" || command === "tag-state";
+    if (!version || (stateCommand ? !sha : command !== "prepare" && command !== "notes")) {
+      throw new Error(
+        "usage: bun scripts/release.ts <prepare|notes> X.Y.Z\n" +
+          "       bun scripts/release.ts <registry-state|tag-state> X.Y.Z SHA",
+      );
     }
     const changelog = readFileSync("CHANGELOG.md", "utf8");
     const raw = readFileSync("package.json", "utf8");
-    const pkg = JSON.parse(raw) as { version: string; repository?: { url?: string } };
-    if (command === "notes") {
+    const pkg = JSON.parse(raw) as {
+      name: string;
+      version: string;
+      repository?: { url?: string };
+      publishConfig?: { registry?: string };
+    };
+    if (command === "registry-state") {
+      const registry = pkg.publishConfig?.registry;
+      if (!registry) throw new Error("package.json has no publishConfig.registry");
+      const view = run([
+        "npm",
+        "view",
+        `${pkg.name}@${version}`,
+        "version",
+        "gitHead",
+        "--json",
+        "--registry",
+        registry,
+      ]);
+      console.log(registryState(view, sha!));
+    } else if (command === "tag-state") {
+      const repo = new URL(repoUrl(pkg)).pathname.slice(1);
+      console.log(tagState(run(["gh", "api", `repos/${repo}/commits/v${version}`]), sha!));
+    } else if (command === "notes") {
       // The release job publishes package.json as is: the notes must describe that version.
       if (pkg.version !== version) {
         throw new Error(

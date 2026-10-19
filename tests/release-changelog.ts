@@ -138,6 +138,37 @@ refuses(
   /lower/,
   "prerelease identifiers are compared too",
 );
+for (const invalid of ["01.0.0", "1.0.0-01", "1.0.0-a..b", "1.0.0-", "v1.0.0", " 1.0.0", "1.0"]) {
+  refuses(
+    () => assertReleasable(invalid, "0.1.0"),
+    /not a release version/,
+    `invalid SemVer ${JSON.stringify(invalid)} is refused`,
+  );
+}
+for (const [version, current] of [
+  ["1.0.0-rc.10", "1.0.0-rc.9"],
+  ["1.0.0-beta", "1.0.0-alpha"],
+  ["1.0.0", "1.0.0-rc.1"],
+  ["1.0.0-alpha.1", "1.0.0-alpha"],
+] as const) {
+  try {
+    assertReleasable(version, current);
+  } catch (error) {
+    failures.push(`${version} after ${current} is accepted: ${String(error)}`);
+  }
+}
+for (const [version, current] of [
+  ["1.0.0-rc.9", "1.0.0-rc.10"],
+  ["1.0.0-alpha", "1.0.0-beta"],
+  ["1.0.0-rc.1", "1.0.0"],
+  ["1.0.0-alpha", "1.0.0-alpha.1"],
+] as const) {
+  refuses(
+    () => assertReleasable(version, current),
+    /lower/,
+    `${version} after ${current} is refused`,
+  );
+}
 refuses(
   () => assertReleasable("0.2", "0.1.0"),
   /not a release version/,

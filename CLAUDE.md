@@ -30,7 +30,7 @@ Tests are plain Bun scripts, not a test runner. Each one collects failures throu
 
 - **`types/` is generated but committed** (a git dependency does not run `prepare` under Bun). `scripts/types-current.sh` rebuilds into a temporary directory and diffs, so any change to an exported signature needs `bun run build:types` and a commit of `types/`.
 - **Vite+ never touches `types/`**: `vite.config.ts` excludes it from Oxfmt and Oxlint, since `types-current.sh` diffs it byte for byte. tsc 5.9 is the only type-check (`typeAware` lint rules, no `typeCheck`). No `prepare` script: git-dependency consumers would run it without Vite+.
-- **`scripts/check-package.sh`**: the `npm pack` listing carries every exports target and no development file.
+- **`scripts/check-package.ts`**: the `npm pack` listing carries every exports target and no development file.
 - **`scripts/boundary.sh`**:
   - every import under `src/` is relative or `node:*`, never a package;
   - `src/server/` may import only its siblings and `../contracts`, `../models`, `../charge-points`, never a concrete driver.
