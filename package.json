@@ -52,7 +52,7 @@
     "lint": "vp lint",
     "format": "vp fmt --write",
     "format:check": "vp fmt --check",
-    "test": "bash scripts/boundary.sh && bash scripts/types-current.sh && bun tests/csms-driver-factories.ts && bun tests/csms-driver-charge-points.ts && bun tests/csms-server.ts && bun examples/csms-driver-smoke.ts",
+    "test": "bash scripts/boundary.sh && bash scripts/types-current.sh && bun tests/csms-driver-factories.ts && bun tests/csms-driver-charge-points.ts && bun tests/csms-server.ts && bun tests/release-changelog.ts && bun examples/csms-driver-smoke.ts",
     "check": "vp check && bun run typecheck && bun run test"
   },
   "devDependencies": {
