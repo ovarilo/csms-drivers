@@ -9,24 +9,25 @@
   ],
   "timezone": "Europe/Paris",
   "labels": ["dependencies"],
+  "platformAutomerge": true,
   "lockFileMaintenance": {
     "enabled": true,
     "automerge": true,
-    "automergeType": "branch"
+    "automergeType": "pr"
   },
   "packageRules": [
     {
       "matchManagers": ["github-actions"],
       "groupName": "github-actions",
       "automerge": true,
-      "automergeType": "branch"
+      "automergeType": "pr"
     },
     {
       "matchManagers": ["npm"],
       "matchDepTypes": ["devDependencies"],
       "matchUpdateTypes": ["patch", "minor"],
       "automerge": true,
-      "automergeType": "branch"
+      "automergeType": "pr"
     },
     {
       "description": "Bun moves as one: the packageManager pin, engines.bun and @types/bun.",
