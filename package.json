@@ -1,6 +1,6 @@
 {
   "name": "@ovarilo/csms-drivers",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Reusable CSMS driver library: typed OCPP 1.6 and 2.0.1 operation contracts, charge-point administration, SteVe and CitrineOS drivers, and an HTTP/JSON handler over any driver.",
   "keywords": [
     "ocpp",
