@@ -1,0 +1,43 @@
+name: Commits
+
+# Apart from CI so that editing a pull request (`edited`) reruns the title check alone: the same
+# trigger on CI would rerun Check and, through its concurrency group, cancel a Check in progress.
+# Every edit reruns it, title or not: a skipped run would count as a pass on a failing title.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: commits-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  commitlint:
+    name: Conventional Commits
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Lint the pull request commits
+        env:
+          FROM: ${{ github.event.pull_request.base.sha }}
+          TO: ${{ github.event.pull_request.head.sha }}
+        run: vp exec commitlint --from "$FROM" --to "$TO" --verbose
+
+      # A squash merge commits the pull request title: it must be a Conventional Commit too.
+      - name: Lint the pull request title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$TITLE" | vp exec commitlint --verbose
