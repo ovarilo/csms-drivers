@@ -16,14 +16,9 @@ dependency and no tie back to the TCK.
 The package runs on [Bun](https://bun.sh) and on Node 26. It ships its
 TypeScript sources, which Bun loads through the `bun` export condition, and the
 ESM JavaScript and declarations built from them in `dist/`, which Node and
-TypeScript load. It can be consumed as a git dependency pinned to a tag or
-commit:
+TypeScript load.
 
-```sh
-bun add github:ovarilo/csms-drivers#<tag-or-commit>
-```
-
-Each release is also published to GitHub Packages. Map the scope to that
+Install the versions published to GitHub Packages. Map the scope to that
 registry with a token holding `read:packages`, in `bunfig.toml`:
 
 ```toml
@@ -40,8 +35,10 @@ or in `.npmrc`:
 
 then `bun add @ovarilo/csms-drivers`.
 
-`dist/` is committed, because a git dependency does not reliably run `prepare`
-under Bun. The consumer's TypeScript resolves the package with
+A git dependency (`github:ovarilo/csms-drivers#…`) is not a supported way to
+install the package: `dist/` is generated at release time and not committed,
+so a checkout lacks what Node and TypeScript load unless the consumer runs
+`bun install && bun run build` in it. The consumer's TypeScript resolves the package with
 `"moduleResolution": "bundler"` or `"nodenext"`; `@ovarilo/csms-drivers/tsconfig`
 is a base configuration that sets `bundler`:
 
@@ -161,10 +158,14 @@ in any language. See [`src/server/README.md`](src/server/README.md).
 ```sh
 bun install
 bunx vp config --no-agent  # once: installs the pre-commit and commit-msg hooks
-bun run check         # format, lint, type-check, test, package content: what CI runs
+bun run check         # format, lint, type-check, build, test, package content: what CI runs
 bun run format        # rewrite with Oxfmt (Vite+)
-bun run build         # regenerate dist/ after any change under src/, and commit it
+bun run build         # generate dist/ (ESM JavaScript and declarations)
+bun run test          # build, then every test and the Node 26/Bun package smoke
 ```
+
+`dist/` is generated and ignored by git; `bun run test` builds it first, so
+`bun run check` works from a fresh checkout.
 
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/),
 checked by commitlint in the `commit-msg` hook and in CI (commits and pull
@@ -179,7 +180,9 @@ request as the change. Renovate keeps dependencies and action digests current.
    `package.json`; open a pull request titled `chore(release): X.Y.Z` and merge it.
 2. Run the **Release** workflow from `main` with `version=X.Y.Z`, first with
    `dry_run` (validation and the full gate only), then without.
-3. It publishes to GitHub Packages, then creates the `vX.Y.Z` tag and the GitHub
+3. It builds and validates the package, publishes that same build to GitHub
+   Packages (the publish job refuses a package whose pack integrity differs from
+   the validated one), then creates the `vX.Y.Z` tag and the GitHub
    Release from the changelog section. Each step is idempotent: re-run a failed
    run instead of dispatching again.
 

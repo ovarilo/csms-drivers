@@ -3,3 +3,4 @@ node_modules/
 .remember/
 .serena/
 .vite-hooks/_
+dist/

@@ -4,6 +4,9 @@
     "lib": ["ES2022"],
     "module": "ESNext",
     "moduleResolution": "bundler",
+    // Tests and examples import the package by name and run on Bun, which takes the `bun` export
+    // condition: type-check them against src/ too, not against a dist/ that may not be built.
+    "customConditions": ["bun"],
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,

@@ -7,7 +7,7 @@ import { defineConfig } from "vite-plus";
 // bundled. tsc is the only type-check, since it also emits dist/.
 export default defineConfig({
   fmt: {
-    // dist/ is tsc output, diffed byte for byte by scripts/dist-current.sh: never reformat it.
+    // dist/ is tsc output, ignored by git and shipped as emitted: never reformat or lint it.
     // Markdown is left to editors: the macOS and Linux oxfmt binaries disagree on the final newline.
     ignorePatterns: ["dist/**", "bun.lock", "**/*.md"],
     semi: true,
@@ -16,7 +16,7 @@ export default defineConfig({
   },
   lint: {
     ignorePatterns: ["dist/**"],
-    // Type-aware rules only: tsc (`bun run typecheck`, dist-current.sh) is the type-check.
+    // Type-aware rules only: tsc (`bun run typecheck`, `bun run build`) is the type-check.
     options: {
       typeAware: true,
     },
