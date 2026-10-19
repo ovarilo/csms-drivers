@@ -1,7 +1,7 @@
 // Copyright 2026 Julien Herr
 // SPDX-License-Identifier: Apache-2.0
 
-import type { CitrineVariant } from "./variant";
+import type { CitrineVariant } from "./variant.ts";
 
 /** Network settings needed by the reusable CitrineOS message API. */
 export interface CitrineApiConfig {

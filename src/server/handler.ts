@@ -28,17 +28,17 @@
  * `application/json`, which no simple request can be. DELETE needs no such
  * rule: a browser preflights it, and the daemon answers no preflight.
  */
-import { ChargePointNotFoundError, type ChargePointSecurity } from "../charge-points";
-import { CSMS_OPERATION_16_ACTIONS } from "../contracts";
-import type { CsmsDriver } from "../models";
+import { ChargePointNotFoundError, type ChargePointSecurity } from "../charge-points.ts";
+import { CSMS_OPERATION_16_ACTIONS } from "../contracts.ts";
+import type { CsmsDriver } from "../models.ts";
 import {
   decodeChargePointDefinition,
   decodeChargePointUpdate,
   encodeChargePointDetails,
-} from "./charge-points";
-import { InvalidInputError } from "./decode";
-import { classify, CsmsHttpError, CsmsTimeoutError, redact } from "./errors";
-import { decodeOperation16, OPERATION_16_PATHS, operation16ForPath } from "./operations16";
+} from "./charge-points.ts";
+import { InvalidInputError } from "./decode.ts";
+import { classify, CsmsHttpError, CsmsTimeoutError, redact } from "./errors.ts";
+import { decodeOperation16, OPERATION_16_PATHS, operation16ForPath } from "./operations16.ts";
 
 /** Who the driver is. Passed in rather than read off the driver, which does not carry it. */
 export interface CsmsHttpAbout {

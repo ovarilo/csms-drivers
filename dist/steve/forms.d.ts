@@ -7,8 +7,8 @@
  * them. Now it is what it always was -- one CSMS's serialisation, owned by the
  * driver for that CSMS.
  */
-import type { ChargePointDetails, ChargePointRegistration, ChargePointSecurityProfile } from "../charge-points";
-import { type CsmsOperation16 } from "../contracts";
+import type { ChargePointDetails, ChargePointRegistration, ChargePointSecurityProfile } from "../charge-points.ts";
+import { type CsmsOperation16 } from "../contracts.ts";
 /**
  * SteVe's ReserveNow `expiry` and UpdateFirmware `retrieveDateTime` inputs
  * have no seconds field. Round UP, so any strictly-future instant formats to a

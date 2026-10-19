@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `@ovarilo/csms-drivers`: a Bun/TypeScript library, with no runtime dependency, that drives a CSMS (SteVe, CitrineOS) through typed OCPP 1.6 and 2.0.1 operation contracts, plus an HTTP/JSON handler over any driver. It was extracted from `juherr/open-ocpp-tck` (`packages/csms-driver`). Comments that cite `tck/…`, `drivers/…` or `juherr/open-ocpp-tck#N` point at that upstream repository.
 
-Consumers install it as a pinned git dependency (`bun add github:ovarilo/csms-drivers#<ref>`), and `package.json#exports` points `default` at the raw `src/*.ts`. Nothing is compiled except the declarations.
+Consumers install it from GitHub Packages or as a pinned git dependency (`bun add github:ovarilo/csms-drivers#<ref>`). `package.json#exports` resolves `bun` to the raw `src/*.ts`, and `types` and `default` to the committed `dist/` (ESM JavaScript and declarations), so the package runs on Node 26 as well.
 
 ## Commands
 
@@ -16,8 +16,8 @@ bunx vp config --no-agent # once: installs the pre-commit (vp staged) and commit
 bun run check            # vp check (Oxfmt + Oxlint) + typecheck + test + package content: what CI runs
 bun run format           # Oxfmt rewrite
 bun run typecheck        # tsc --noEmit over src/, tests/, examples/, scripts/
-bun run test             # boundary guard, committed-types check, every test, the example
-bun run build:types      # regenerate types/ — required after any public API change
+bun run test             # boundary guard, committed-dist check, every test, the example, the npm/Node 26 package smoke
+bun run build            # regenerate dist/ — required after any change under src/
 bun tests/csms-server.ts # a single test: each test file is a standalone script
 bun scripts/release.ts prepare X.Y.Z # release PR: dates CHANGELOG, bumps package.json
 ```
@@ -28,13 +28,15 @@ Tests are plain Bun scripts, not a test runner. Each one collects failures throu
 
 ## Invariants enforced by scripts
 
-- **`types/` is generated but committed** (a git dependency does not run `prepare` under Bun). `scripts/types-current.sh` rebuilds into a temporary directory and diffs, so any change to an exported signature needs `bun run build:types` and a commit of `types/`.
-- **Vite+ never touches `types/`**: `vite.config.ts` excludes it from Oxfmt and Oxlint, since `types-current.sh` diffs it byte for byte. tsc 5.9 is the only type-check (`typeAware` lint rules, no `typeCheck`). No `prepare` script: git-dependency consumers would run it without Vite+.
+- **`dist/` is generated but committed** (a git dependency does not run `prepare` under Bun, and Node refuses to strip types under `node_modules`). `scripts/dist-current.sh` rebuilds into a temporary directory and diffs, so any change under `src/`, comments included, needs `bun run build` and a commit of `dist/`.
+- **`scripts/package-smoke.sh`**: packs, installs with npm under Node 26 without devDependencies, runs a driver and the server from Node and Bun, and type-checks a `nodenext` consumer.
+- **Vite+ never touches `dist/`**: `vite.config.ts` excludes it from Oxfmt and Oxlint, since `dist-current.sh` diffs it byte for byte. tsc 5.9 is the only type-check (`typeAware` lint rules, no `typeCheck`). No `prepare` script: git-dependency consumers would run it without Vite+.
 - **`scripts/check-package.ts`**: the `npm pack` listing carries every exports target and no development file.
 - **`scripts/boundary.sh`**:
   - every import under `src/` is relative or `node:*`, never a package;
+  - every relative specifier names a `.ts` file, which the build rewrites to `.js`: an extensionless or directory specifier does not resolve on Node;
   - `src/server/` may import only its siblings and `../contracts`, `../models`, `../charge-points`, never a concrete driver.
-- Consumers need `moduleResolution: bundler`; `@ovarilo/csms-drivers/tsconfig` exports `tsconfig.base.json` for them. That base file holds compilerOptions only: an `include` there would resolve inside `node_modules`.
+- Consumers resolve the package with `moduleResolution: bundler` or `nodenext`; `@ovarilo/csms-drivers/tsconfig` exports `tsconfig.base.json` (`bundler`) for them. That base file holds compilerOptions only: an `include` there would resolve inside `node_modules`.
 
 ## Architecture
 

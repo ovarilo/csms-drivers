@@ -8,10 +8,9 @@
     "node_modules -- an `include` here would silently try to compile the",
     "package instead of the consumer's driver.",
     "",
-    "`moduleResolution: bundler` is the supported baseline. node16/nodenext",
-    "reject the extensionless relative imports in the generated declarations;",
-    "node10 ignores the exports map entirely and cannot resolve this package at",
-    "all. Both are documented in the README rather than papered over."
+    "`moduleResolution: bundler` is the baseline set here; nodenext resolves",
+    "the package as well, through the `.js` specifiers of dist/. node10 ignores",
+    "the exports map entirely and cannot resolve this package at all."
   ],
   "compilerOptions": {
     "target": "ES2022",

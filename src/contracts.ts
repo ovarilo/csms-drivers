@@ -4,7 +4,7 @@
  * CSMS-neutral OCPP operation contracts, capabilities, and dispatch errors.
  * TCK-specific driver lifecycle and assertion records live under tck/.
  */
-import type { CsmsChargePointCapabilities } from "./charge-points";
+import type { CsmsChargePointCapabilities } from "./charge-points.ts";
 
 export type TransactionRef = string;
 /** A CSMS-side reservation handle. `""` = none. */
@@ -1218,7 +1218,7 @@ export class CsmsNotDispatchedError extends Error {
  * `tests/documented-install-ref.sh` compares byte for byte against the
  * installed tag. It is a real cost -- changing this type after a tag exists
  * obliges a version bump and a repoint of both install pages. It was chosen
- * anyway: the type ships in `types/` either way, so a change to it IS a public
+ * anyway: the type ships in `dist/` either way, so a change to it IS a public
  * API change that owes a release, and a separate module would owe a new
  * `exports` subpath to be importable at all. The third option, a copy per
  * driver, is the worst of the three -- two `FetchLike`s that drift are two

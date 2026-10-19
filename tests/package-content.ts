@@ -19,8 +19,12 @@ function check(condition: boolean, message: string): void {
 }
 
 const exportsMap = {
-  ".": { types: "./types/index.d.ts", default: "./src/index.ts" },
-  "./server": { types: "./types/server/index.d.ts", default: "./src/server/index.ts" },
+  ".": { bun: "./src/index.ts", types: "./dist/index.d.ts", default: "./dist/index.js" },
+  "./server": {
+    bun: "./src/server/index.ts",
+    types: "./dist/server/index.d.ts",
+    default: "./dist/server/index.js",
+  },
   "./tsconfig": "./tsconfig.base.json",
   "./package.json": "./package.json",
 };
@@ -31,8 +35,10 @@ const complete = [
   "tsconfig.base.json",
   "src/index.ts",
   "src/server/index.ts",
-  "types/index.d.ts",
-  "types/server/index.d.ts",
+  "dist/index.d.ts",
+  "dist/index.js",
+  "dist/server/index.d.ts",
+  "dist/server/index.js",
 ];
 
 // 1. Export targets.
@@ -43,11 +49,11 @@ const complete = [
 {
   const problems = packageProblems(
     { exports: exportsMap },
-    complete.filter((file) => file !== "types/server/index.d.ts"),
+    complete.filter((file) => file !== "dist/server/index.js"),
   );
   check(
     problems.length === 1 &&
-      problems[0]!.includes("types/server/index.d.ts") &&
+      problems[0]!.includes("dist/server/index.js") &&
       problems[0]!.includes('"./server"'),
     `a missing nested export target is reported with its export, got: ${problems.join("; ")}`,
   );

@@ -1,5 +1,5 @@
-import type { CsmsChargePointAdmin } from "./charge-points";
-import type { TransactionRef } from "./contracts";
+import type { CsmsChargePointAdmin } from "./charge-points.ts";
+import type { TransactionRef } from "./contracts.ts";
 /** A typed, CSMS-side charging session. */
 export interface CsmsSession {
     /** Opaque handle accepted by this driver's operations. */
@@ -29,11 +29,11 @@ export interface CsmsConnectorApi {
 }
 /** The reusable portions returned by a vendor driver factory. */
 export interface CsmsDriver {
-    readonly operations16: import("./contracts").CsmsOperations16;
-    readonly operations201?: import("./contracts").CsmsOperations201;
+    readonly operations16: import("./contracts.ts").CsmsOperations16;
+    readonly operations201?: import("./contracts.ts").CsmsOperations201;
     readonly sessions?: CsmsSessionApi;
     readonly connectors?: CsmsConnectorApi;
     /** Present exactly when `capabilities.chargePoints` is declared. */
     readonly chargePoints?: CsmsChargePointAdmin;
-    readonly capabilities: import("./contracts").CsmsCapabilities;
+    readonly capabilities: import("./contracts.ts").CsmsCapabilities;
 }

@@ -8,7 +8,7 @@
  * Four are the issue's shortened names (`reset`, `unlock`, `remote-start`,
  * `remote-stop`); the rest are the action in kebab case.
  */
-import { type CsmsOperation16, type CsmsOperation16Action } from "../contracts";
+import { type CsmsOperation16, type CsmsOperation16Action } from "../contracts.ts";
 export declare const OPERATION_16_PATHS: Readonly<Record<CsmsOperation16Action, string>>;
 /** The action a path names, or `undefined` for a path no action has. */
 export declare function operation16ForPath(path: string): CsmsOperation16Action | undefined;

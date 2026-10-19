@@ -22,8 +22,8 @@ import {
   type MessageTrigger,
   type ResetType16,
   type UpdateType,
-} from "../contracts";
-import { literals, ObjectReader, present } from "./decode";
+} from "../contracts.ts";
+import { literals, ObjectReader, present } from "./decode.ts";
 
 export const OPERATION_16_PATHS: Readonly<Record<CsmsOperation16Action, string>> = {
   Reset: "reset",

@@ -3,7 +3,7 @@
  * back. The wire names ARE the model's names, so there is nothing to map --
  * only the shape to enforce, which the model's types cannot do for JSON.
  */
-import type { ChargePointDefinition, ChargePointDetails, ChargePointUpdate } from "../charge-points";
+import type { ChargePointDefinition, ChargePointDetails, ChargePointUpdate } from "../charge-points.ts";
 export declare function decodeChargePointDefinition(body: unknown): ChargePointDefinition;
 export declare function decodeChargePointUpdate(body: unknown): ChargePointUpdate;
 /** The read-back, rebuilt member by member so that nothing a driver adds -- a

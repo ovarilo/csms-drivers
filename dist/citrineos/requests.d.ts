@@ -23,8 +23,8 @@
  *    {@link CitrineRefs}.
  *  - RESERVATIONS DO NOT EXIST HERE AT ALL. See the two throwing cases.
  */
-import { type ChargingProfileRef, type CsmsOperation16, type CsmsOperation201, type TransactionRef } from "../contracts";
-import { type CitrineVariant } from "./variant";
+import { type ChargingProfileRef, type CsmsOperation16, type CsmsOperation201, type TransactionRef } from "../contracts.ts";
+import { type CitrineVariant } from "./variant.ts";
 /** The endpointPrefix values CitrineOS's shipped `docker` config declares. */
 export type CitrineModule = "certificates" | "configuration" | "evdriver" | "monitoring" | "reporting" | "smartcharging";
 /** The version segment of a message-API path, spelled as CitrineOS spells it.

@@ -54,10 +54,10 @@
  * a half and not an oversight. It is what stops this being a blanket
  * conversion, and it is the half worth a guard.
  */
-import { CsmsNotDispatchedError, type FetchLike } from "../contracts";
-import type { CitrineApiConfig } from "./config";
-import { errorBody, preview, readAnsweredBody } from "./http";
-import type { CitrineRequest } from "./requests";
+import { CsmsNotDispatchedError, type FetchLike } from "../contracts.ts";
+import type { CitrineApiConfig } from "./config.ts";
+import { errorBody, preview, readAnsweredBody } from "./http.ts";
+import type { CitrineRequest } from "./requests.ts";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 

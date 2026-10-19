@@ -40,7 +40,7 @@
       "groupName": "commitlint"
     },
     {
-      "description": "A TypeScript bump can change the emitted declarations: types/ then needs `bun run build:types`, which Renovate cannot run. Review by hand.",
+      "description": "A TypeScript bump can change the emitted JavaScript and declarations: dist/ then needs `bun run build`, which Renovate cannot run. Review by hand.",
       "matchPackageNames": ["typescript"],
       "automerge": false
     },

@@ -7,7 +7,7 @@
  * the wire; the UI path does not, which matters for any scenario whose point
  * is that the CHARGE POINT produces the answer.
  */
-import { type FetchLike } from "../contracts";
+import { type FetchLike } from "../contracts.ts";
 export interface SteveUiConfig {
     /** e.g. http://steve:8180/steve/manager (container-internal: the
      *  public host is behind a forward-auth proxy this client cannot pass). */
@@ -23,7 +23,7 @@ export interface SteveUiConfig {
  *
  * Declared here until a second driver needed it; {@link FetchLike} says why it
  * moved. Re-exported rather than merely imported, which is what keeps
- * `types/drivers/steve/ui-client.d.ts` naming it and the move from being a
+ * `dist/steve/ui-client.d.ts` naming it and the move from being a
  * break for anyone importing it from this path.
  */
 export type { FetchLike };

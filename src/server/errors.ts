@@ -8,9 +8,9 @@
  * failure class maps to exactly one (status, code), so a client branches on
  * the code and never parses a message.
  */
-import { ChargePointAlreadyExistsError, ChargePointNotFoundError } from "../charge-points";
-import { CsmsNotDispatchedError, UnsupportedOperationError } from "../contracts";
-import { InvalidInputError } from "./decode";
+import { ChargePointAlreadyExistsError, ChargePointNotFoundError } from "../charge-points.ts";
+import { CsmsNotDispatchedError, UnsupportedOperationError } from "../contracts.ts";
+import { InvalidInputError } from "./decode.ts";
 
 export type CsmsErrorCode =
   | "invalid_input"

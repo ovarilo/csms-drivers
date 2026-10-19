@@ -41,8 +41,8 @@
  * Provisioning happens before a station connects, which is the case this
  * surface is for.
  */
-import { type ChargePointSecurityProfile, type CsmsChargePointAdmin } from "../charge-points";
-import type { SteveUiOps } from "./ui-client";
+import { type ChargePointSecurityProfile, type CsmsChargePointAdmin } from "../charge-points.ts";
+import type { SteveUiOps } from "./ui-client.ts";
 /** Every profile SteVe's form offers. 2 and 3 need TLS on the OCPP endpoint,
  *  which is the deployment's concern; the record accepts them regardless. */
 export declare const STEVE_CHARGE_POINT_PROFILES: ReadonlySet<ChargePointSecurityProfile>;
