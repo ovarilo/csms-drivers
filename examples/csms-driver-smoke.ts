@@ -1,10 +1,7 @@
 // Copyright 2026 Julien Herr
 // SPDX-License-Identifier: Apache-2.0
 
-import {
-  createCitrineOsCsmsDriver,
-  type FetchLike,
-} from "@ovarilo/csms-drivers";
+import { createCitrineOsCsmsDriver, type FetchLike } from "@ovarilo/csms-drivers";
 
 const requests: { url: string; body: string }[] = [];
 const fetch: FetchLike = async (input, init) => {

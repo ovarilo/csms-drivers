@@ -31,7 +31,11 @@
 import { ChargePointNotFoundError, type ChargePointSecurity } from "../charge-points";
 import { CSMS_OPERATION_16_ACTIONS } from "../contracts";
 import type { CsmsDriver } from "../models";
-import { decodeChargePointDefinition, decodeChargePointUpdate, encodeChargePointDetails } from "./charge-points";
+import {
+  decodeChargePointDefinition,
+  decodeChargePointUpdate,
+  encodeChargePointDetails,
+} from "./charge-points";
 import { InvalidInputError } from "./decode";
 import { classify, CsmsHttpError, CsmsTimeoutError, redact } from "./errors";
 import { decodeOperation16, OPERATION_16_PATHS, operation16ForPath } from "./operations16";
@@ -65,12 +69,18 @@ export const MAX_TIMEOUT_MS = 2_147_483_647;
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 
-function json(status: number, body: unknown, headers: Readonly<Record<string, string>> = {}): Response {
+function json(
+  status: number,
+  body: unknown,
+  headers: Readonly<Record<string, string>> = {},
+): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...headers } });
 }
 
 function methodNotAllowed(allowed: string): never {
-  throw new CsmsHttpError(405, "method_not_allowed", `this route serves ${allowed} only`, { allow: allowed });
+  throw new CsmsHttpError(405, "method_not_allowed", `this route serves ${allowed} only`, {
+    allow: allowed,
+  });
 }
 
 function notFound(what: string): never {
@@ -88,9 +98,16 @@ function refuseBrowserRequests(request: Request): void {
     );
   }
   if (request.method === "POST" || request.method === "PATCH") {
-    const mediaType = (request.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+    const mediaType = (request.headers.get("content-type") ?? "")
+      .split(";")[0]!
+      .trim()
+      .toLowerCase();
     if (mediaType !== "application/json") {
-      throw new CsmsHttpError(415, "unsupported_media_type", "a POST or PATCH must be Content-Type: application/json");
+      throw new CsmsHttpError(
+        415,
+        "unsupported_media_type",
+        "a POST or PATCH must be Content-Type: application/json",
+      );
     }
   }
 }
@@ -121,13 +138,18 @@ function rememberPassword(security: ChargePointSecurity | undefined, secrets: st
   if (security && "basicAuthPassword" in security) secrets.push(security.basicAuthPassword);
 }
 
-export function createCsmsHttpHandler(driver: CsmsDriver, options: CsmsHttpOptions): CsmsHttpHandler {
+export function createCsmsHttpHandler(
+  driver: CsmsDriver,
+  options: CsmsHttpOptions,
+): CsmsHttpHandler {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   // Refused rather than clamped: a deadline that expires before the driver
   // answers turns every request it DID dispatch into "outcome unknown", and a
   // client that retries on 504 then sends each operation twice.
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS) {
-    throw new RangeError(`timeoutMs must be an integer from 1 to ${MAX_TIMEOUT_MS}, got ${timeoutMs}`);
+    throw new RangeError(
+      `timeoutMs must be an integer from 1 to ${MAX_TIMEOUT_MS}, got ${timeoutMs}`,
+    );
   }
   const log = options.log ?? (() => {});
   const capabilities = driver.capabilities;
@@ -141,9 +163,9 @@ export function createCsmsHttpHandler(driver: CsmsDriver, options: CsmsHttpOptio
     id: options.about.id,
     displayName: options.about.displayName,
     protocols: options.about.protocols ?? null,
-    operations16: CSMS_OPERATION_16_ACTIONS.filter((action) => capabilities.operations16.has(action)).map(
-      (action) => ({ operation: OPERATION_16_PATHS[action], action }),
-    ),
+    operations16: CSMS_OPERATION_16_ACTIONS.filter((action) =>
+      capabilities.operations16.has(action),
+    ).map((action) => ({ operation: OPERATION_16_PATHS[action], action })),
     chargePoints: admin ? { securityProfiles: [...admin.declared].sort((a, b) => a - b) } : null,
   };
 
@@ -187,7 +209,11 @@ export function createCsmsHttpHandler(driver: CsmsDriver, options: CsmsHttpOptio
 
   function requireAdmin(): NonNullable<typeof admin> {
     if (!admin) {
-      throw new CsmsHttpError(501, "unsupported_capability", "this driver has no charge-point administration");
+      throw new CsmsHttpError(
+        501,
+        "unsupported_capability",
+        "this driver has no charge-point administration",
+      );
     }
     return admin;
   }
@@ -225,7 +251,8 @@ export function createCsmsHttpHandler(driver: CsmsDriver, options: CsmsHttpOptio
 
     if (sub === undefined) {
       // 405 before 501: a method this route never serves is wrong whatever the driver.
-      if (method !== "GET" && method !== "PATCH" && method !== "DELETE") methodNotAllowed("GET, PATCH, DELETE");
+      if (method !== "GET" && method !== "PATCH" && method !== "DELETE")
+        methodNotAllowed("GET, PATCH, DELETE");
       const { chargePoints, declared } = requireAdmin();
       if (method === "GET") {
         const details = await call(() => chargePoints.get(cpId));
@@ -248,12 +275,21 @@ export function createCsmsHttpHandler(driver: CsmsDriver, options: CsmsHttpOptio
     if (!action) notFound(`no OCPP 1.6 operation is served at '${operationPath}'`);
     if (method !== "POST") methodNotAllowed("POST");
     if (!capabilities.operations16.has(action)) {
-      throw new CsmsHttpError(501, "unsupported_capability", `this driver does not declare ${action}`);
+      throw new CsmsHttpError(
+        501,
+        "unsupported_capability",
+        `this driver does not declare ${action}`,
+      );
     }
     const operation = decodeOperation16(action, await readBody(request));
     // The receipt stays here: it is a CSMS's own artefact -- a task URL, a
     // response body -- and the contract reserves it for logs.
     await call(() => driver.operations16.execute(cpId, operation));
-    return json(202, { chargePointId: cpId, operation: operationPath, action, status: "dispatched" });
+    return json(202, {
+      chargePointId: cpId,
+      operation: operationPath,
+      action,
+      status: "dispatched",
+    });
   }
 }

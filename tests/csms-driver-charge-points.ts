@@ -81,7 +81,11 @@
 
 import { STEVE_CHARGE_POINT_PAGES } from "../src/steve/forms";
 import { SteveUiOps } from "../src/steve/ui-client";
-import { FAKE_STEVE_BASE, fakeSteveManager, type FakeSteveManager } from "./fixtures/fake-steve-manager";
+import {
+  FAKE_STEVE_BASE,
+  fakeSteveManager,
+  type FakeSteveManager,
+} from "./fixtures/fake-steve-manager";
 import {
   ALL_PROFILES,
   chargePointAdminViolations,
@@ -126,10 +130,16 @@ interface StoredChargePoint extends ChargePointDetails {
 type Store = Map<string, StoredChargePoint>;
 
 /** The contract, over a map. `accepts` is what it refuses outside of. */
-function memoryAdmin(store: Store, accepts: ReadonlySet<ChargePointSecurityProfile>): CsmsChargePointAdmin {
+function memoryAdmin(
+  store: Store,
+  accepts: ReadonlySet<ChargePointSecurityProfile>,
+): CsmsChargePointAdmin {
   const refuseUnaccepted = (method: string, profile: ChargePointSecurityProfile): void => {
     if (!accepts.has(profile)) {
-      throw new UnsupportedOperationError(`chargePoints.${method}`, `security profile ${profile} is not supported`);
+      throw new UnsupportedOperationError(
+        `chargePoints.${method}`,
+        `security profile ${profile} is not supported`,
+      );
     }
   };
   const passwordOf = (security: ChargePointSecurity): string | undefined =>
@@ -164,7 +174,8 @@ function memoryAdmin(store: Store, accepts: ReadonlySet<ChargePointSecurityProfi
         // `security` replaces the whole block, so a new profile drops the old password.
         security: patch.security ? { profile: patch.security.profile } : stored.security,
         basicAuthPassword: patch.security ? passwordOf(patch.security) : stored.basicAuthPassword,
-        description: patch.description === null ? undefined : patch.description ?? stored.description,
+        description:
+          patch.description === null ? undefined : (patch.description ?? stored.description),
       });
     },
     async delete(cpId) {
@@ -194,13 +205,23 @@ type FlawCase = {
 );
 
 /** A flaw that rewrites what `create` is handed. */
-const defining = (rewrite: (definition: ChargePointDefinition) => ChargePointDefinition) =>
-  ({ strict }: Reference): Partial<CsmsChargePointAdmin> => ({ create: (definition) => strict.create(rewrite(definition)) });
+const defining =
+  (rewrite: (definition: ChargePointDefinition) => ChargePointDefinition) =>
+  ({ strict }: Reference): Partial<CsmsChargePointAdmin> => ({
+    create: (definition) => strict.create(rewrite(definition)),
+  });
 /** A flaw that rewrites what `update` is handed. */
-const patching = (rewrite: (patch: ChargePointUpdate) => ChargePointUpdate) =>
-  ({ strict }: Reference): Partial<CsmsChargePointAdmin> => ({ update: (cpId, patch) => strict.update(cpId, rewrite(patch)) });
+const patching =
+  (rewrite: (patch: ChargePointUpdate) => ChargePointUpdate) =>
+  ({ strict }: Reference): Partial<CsmsChargePointAdmin> => ({
+    update: (cpId, patch) => strict.update(cpId, rewrite(patch)),
+  });
 /** A flaw that applies the call anyway after refusing it. */
-const appliesAnyway = <A extends unknown[]>(strict: (...args: A) => Promise<void>, lax: (...args: A) => Promise<void>) =>
+const appliesAnyway =
+  <A extends unknown[]>(
+    strict: (...args: A) => Promise<void>,
+    lax: (...args: A) => Promise<void>,
+  ) =>
   async (...args: A): Promise<void> => {
     try {
       await strict(...args);
@@ -210,7 +231,8 @@ const appliesAnyway = <A extends unknown[]>(strict: (...args: A) => Promise<void
     }
   };
 /** A flaw whose duplicate `create` rewrites one member before refusing. */
-const rewritesOnDuplicate = (pick: (definition: ChargePointDefinition) => ChargePointUpdate) =>
+const rewritesOnDuplicate =
+  (pick: (definition: ChargePointDefinition) => ChargePointUpdate) =>
   ({ strict }: Reference): Partial<CsmsChargePointAdmin> => ({
     create: async (definition) => {
       if ((await strict.get(definition.id)) !== null) {
@@ -221,15 +243,20 @@ const rewritesOnDuplicate = (pick: (definition: ChargePointDefinition) => Charge
     },
   });
 /** A flaw whose refused `update` applies one member of its patch first. */
-const appliesBeforeRefusing = (pick: (patch: ChargePointUpdate) => ChargePointUpdate) =>
+const appliesBeforeRefusing =
+  (pick: (patch: ChargePointUpdate) => ChargePointUpdate) =>
   ({ strict, lax, declared }: Reference): Partial<CsmsChargePointAdmin> => ({
     update: async (cpId, patch) => {
-      if (patch.security && !declared.has(patch.security.profile)) await lax.update(cpId, pick(patch));
+      if (patch.security && !declared.has(patch.security.profile))
+        await lax.update(cpId, pick(patch));
       await strict.update(cpId, patch);
     },
   });
 
-function memoryDriver(flaw?: FlawCase, declares: readonly ChargePointSecurityProfile[] = DECLARED_PROFILES): CsmsDriver {
+function memoryDriver(
+  flaw?: FlawCase,
+  declares: readonly ChargePointSecurityProfile[] = DECLARED_PROFILES,
+): CsmsDriver {
   const store: Store = new Map();
   const declared = new Set(flaw?.declares ?? declares);
   const reference: Reference = {
@@ -241,7 +268,10 @@ function memoryDriver(flaw?: FlawCase, declares: readonly ChargePointSecurityPro
   const driver: CsmsDriver = {
     capabilities: { operations16: new Set(), chargePoints: { securityProfiles: declared } },
     operations16: { execute: async () => "" },
-    chargePoints: { ...reference.strict, ...(flaw && "admin" in flaw ? flaw.admin(reference) : {}) },
+    chargePoints: {
+      ...reference.strict,
+      ...(flaw && "admin" in flaw ? flaw.admin(reference) : {}),
+    },
   };
   return flaw && "driver" in flaw ? flaw.driver(driver) : driver;
 }
@@ -254,7 +284,10 @@ const FLAWS: Readonly<Record<string, FlawCase>> = {
   },
   "surface-without-declaration": {
     refusedFor: RULE.declaredWhenImplemented,
-    driver: (driver) => ({ ...driver, capabilities: { operations16: driver.capabilities.operations16 } }),
+    driver: (driver) => ({
+      ...driver,
+      capabilities: { operations16: driver.capabilities.operations16 },
+    }),
   },
   "no-declared-profile": {
     refusedFor: RULE.declaresAProfile,
@@ -267,7 +300,12 @@ const FLAWS: Readonly<Record<string, FlawCase>> = {
   "get-missing-not-null": {
     refusedFor: RULE.getMissingIsNull,
     admin: ({ strict }) => ({
-      get: async (cpId) => (await strict.get(cpId)) ?? { id: cpId, registration: "Accepted", security: { profile: 0 } },
+      get: async (cpId) =>
+        (await strict.get(cpId)) ?? {
+          id: cpId,
+          registration: "Accepted",
+          security: { profile: 0 },
+        },
     }),
   },
   "create-drops-description": {
@@ -361,7 +399,9 @@ const FLAWS: Readonly<Record<string, FlawCase>> = {
     declares: [1],
     admin: ({ strict, lax }) => ({
       create: (definition) =>
-        definition.security ? strict.create(definition) : appliesAnyway(strict.create, lax.create)(definition),
+        definition.security
+          ? strict.create(definition)
+          : appliesAnyway(strict.create, lax.create)(definition),
     }),
   },
   "update-ignores-registration": {
@@ -370,7 +410,9 @@ const FLAWS: Readonly<Record<string, FlawCase>> = {
   },
   "registration-update-changes-security": {
     refusedFor: RULE.updateKeepsUnnamed,
-    admin: patching((patch) => (patch.registration ? { ...patch, security: { profile: 0 } } : patch)),
+    admin: patching((patch) =>
+      patch.registration ? { ...patch, security: { profile: 0 } } : patch,
+    ),
   },
   "update-clears-unnamed-description": {
     refusedFor: RULE.updateKeepsUnnamed,
@@ -378,11 +420,15 @@ const FLAWS: Readonly<Record<string, FlawCase>> = {
   },
   "update-ignores-description": {
     refusedFor: RULE.updateAppliesDescription,
-    admin: patching((patch) => (typeof patch.description === "string" ? { ...patch, description: undefined } : patch)),
+    admin: patching((patch) =>
+      typeof patch.description === "string" ? { ...patch, description: undefined } : patch,
+    ),
   },
   "null-description-kept": {
     refusedFor: RULE.nullDescriptionClears,
-    admin: patching((patch) => (patch.description === null ? { ...patch, description: undefined } : patch)),
+    admin: patching((patch) =>
+      patch.description === null ? { ...patch, description: undefined } : patch,
+    ),
   },
   "update-ignores-security": {
     refusedFor: RULE.updateAppliesSecurity,
@@ -420,7 +466,13 @@ const FLAWS: Readonly<Record<string, FlawCase>> = {
     admin: ({ strict }) => ({
       get: async (cpId) => {
         const details = await strict.get(cpId);
-        return details && ({ ...details, security: { ...details.security, basicAuthPassword: "***" } } as ChargePointDetails);
+        return (
+          details &&
+          ({
+            ...details,
+            security: { ...details.security, basicAuthPassword: "***" },
+          } as ChargePointDetails)
+        );
       },
     }),
   },
@@ -490,7 +542,12 @@ const steveAdmin = (fake: FakeSteveManager): CsmsChargePointAdmin => {
   return admin;
 };
 /** What an operator does in the manager UI: open the details page, change two fields, press Update. */
-const operatorPosts = (fake: FakeSteveManager, cpId: string, profile: string, authPassword: string): Promise<string> =>
+const operatorPosts = (
+  fake: FakeSteveManager,
+  cpId: string,
+  profile: string,
+  authPassword: string,
+): Promise<string> =>
   new SteveUiOps(STEVE_CONFIG, fake.fetch).submitForm(
     STEVE_CHARGE_POINT_PAGES.details(fake.stations.get(cpId)?.pk ?? -1),
     STEVE_CHARGE_POINT_PAGES.updateAction,
@@ -504,9 +561,14 @@ const operatorPosts = (fake: FakeSteveManager, cpId: string, profile: string, au
   );
 const OLD_PASSWORD = "provisioned-secret-1";
 /** An `Error` of no subclass: the CSMS answered, and refused. */
-const isPlainError = (error: unknown): error is Error => error instanceof Error && error.constructor === Error;
+const isPlainError = (error: unknown): error is Error =>
+  error instanceof Error && error.constructor === Error;
 /** What `promise` rejects with, or `undefined` when it resolves. */
-const caught = (promise: Promise<unknown>): Promise<unknown> => promise.then(() => undefined, (thrown: unknown) => thrown);
+const caught = (promise: Promise<unknown>): Promise<unknown> =>
+  promise.then(
+    () => undefined,
+    (thrown: unknown) => thrown,
+  );
 
 /** One row: a throw is that row failing, named, rather than the guard crashing. */
 async function row(name: string, body: () => Promise<void>): Promise<void> {
@@ -530,7 +592,10 @@ for (const [name, driver] of Object.entries(bundled)) {
   check(violations.length === 0, `the ${name} factory conforms (${violations.join("; ")})`);
 }
 check(bundled.steve.chargePoints !== undefined, "the SteVe factory implements the admin surface");
-check(bundled.citrineos.chargePoints === undefined, "the CitrineOS factory does not implement the admin surface yet");
+check(
+  bundled.citrineos.chargePoints === undefined,
+  "the CitrineOS factory does not implement the admin surface yet",
+);
 
 // #155: a downgrade to profile 0 or 3 discards the password. SteVe reads an
 // empty authPassword as "unchanged", so what is checked is the POSTED BODY --
@@ -538,34 +603,49 @@ check(bundled.citrineos.chargePoints === undefined, "the CitrineOS factory does 
 // switches the station back to profile 1 without typing one does not revive
 // the old password.
 const discarded: string[] = [];
-for (const profile of [0, 3] as const) await row(`a downgrade to profile ${profile}`, async () => {
-  const fake = fakeSteveManager();
-  const admin = steveAdmin(fake);
-  await admin.create({ id: "CP-155", security: { profile: 1, basicAuthPassword: OLD_PASSWORD } });
-  const before = fake.posts.length;
-  await admin.update("CP-155", { security: { profile } });
-  const posted = fake.posts.slice(before).filter((post) => post.action === STEVE_CHARGE_POINT_PAGES.updateAction);
-  const password = posted[0]?.fields.get("authPassword") ?? "";
-  check(posted.length === 1, `a downgrade to profile ${profile} posts one update form (posted ${posted.length})`);
-  check(
-    password.length >= 16 && password.length <= 20 && password !== OLD_PASSWORD,
-    `a downgrade to profile ${profile} posts a new password SteVe accepts, not an empty one (posted ${JSON.stringify(password)})`,
-  );
-  check(fake.stations.get("CP-155")?.authPassword !== OLD_PASSWORD, `a downgrade to profile ${profile} replaces the stored password`);
-  await operatorPosts(fake, "CP-155", "Profile_1", "");
-  check(
-    !fake.authenticates("CP-155", OLD_PASSWORD),
-    `after a downgrade to profile ${profile}, switching back to profile 1 without a password does not revive the old one`,
-  );
-  discarded.push(password);
-});
-check(new Set(discarded).size === discarded.length, `every downgrade posts a password of its own (${discarded.join(", ")})`);
+for (const profile of [0, 3] as const)
+  await row(`a downgrade to profile ${profile}`, async () => {
+    const fake = fakeSteveManager();
+    const admin = steveAdmin(fake);
+    await admin.create({ id: "CP-155", security: { profile: 1, basicAuthPassword: OLD_PASSWORD } });
+    const before = fake.posts.length;
+    await admin.update("CP-155", { security: { profile } });
+    const posted = fake.posts
+      .slice(before)
+      .filter((post) => post.action === STEVE_CHARGE_POINT_PAGES.updateAction);
+    const password = posted[0]?.fields.get("authPassword") ?? "";
+    check(
+      posted.length === 1,
+      `a downgrade to profile ${profile} posts one update form (posted ${posted.length})`,
+    );
+    check(
+      password.length >= 16 && password.length <= 20 && password !== OLD_PASSWORD,
+      `a downgrade to profile ${profile} posts a new password SteVe accepts, not an empty one (posted ${JSON.stringify(password)})`,
+    );
+    check(
+      fake.stations.get("CP-155")?.authPassword !== OLD_PASSWORD,
+      `a downgrade to profile ${profile} replaces the stored password`,
+    );
+    await operatorPosts(fake, "CP-155", "Profile_1", "");
+    check(
+      !fake.authenticates("CP-155", OLD_PASSWORD),
+      `after a downgrade to profile ${profile}, switching back to profile 1 without a password does not revive the old one`,
+    );
+    discarded.push(password);
+  });
+check(
+  new Set(discarded).size === discarded.length,
+  `every downgrade posts a password of its own (${discarded.join(", ")})`,
+);
 
 // The control the rows above stand on: the fake does keep a password an empty
 // field leaves alone, so they are not green because it forgets everything.
 await row("control", async () => {
   const fake = fakeSteveManager();
-  await steveAdmin(fake).create({ id: "CP-155", security: { profile: 1, basicAuthPassword: OLD_PASSWORD } });
+  await steveAdmin(fake).create({
+    id: "CP-155",
+    security: { profile: 1, basicAuthPassword: OLD_PASSWORD },
+  });
   await operatorPosts(fake, "CP-155", "Profile_0", "");
   await operatorPosts(fake, "CP-155", "Profile_1", "");
   check(
@@ -579,14 +659,25 @@ await row("control", async () => {
 await row("the refusal row", async () => {
   const fake = fakeSteveManager();
   const tooLong = "far-too-long-to-be-a-steve-password";
-  const error = await caught(steveAdmin(fake).create({ id: "CP-LONG", security: { profile: 1, basicAuthPassword: tooLong } }));
+  const error = await caught(
+    steveAdmin(fake).create({
+      id: "CP-LONG",
+      security: { profile: 1, basicAuthPassword: tooLong },
+    }),
+  );
   check(isPlainError(error), `a create SteVe refuses is a plain Error (got ${String(error)})`);
   const message = error instanceof Error ? error.message : "";
-  check(message.includes("between 16 and 20 characters"), `the refusal names SteVe's reason (${message})`);
+  check(
+    message.includes("between 16 and 20 characters"),
+    `the refusal names SteVe's reason (${message})`,
+  );
   check(!message.includes(tooLong), "the refusal does not carry the posted password");
   // The re-rendered form sits after the error list, so a message that keeps
   // any of the body's markup is one excerpt away from carrying it.
-  check(!/[<>]|value=/.test(message), `the refusal carries the page's error text and none of its markup (${message})`);
+  check(
+    !/[<>]|value=/.test(message),
+    `the refusal carries the page's error text and none of its markup (${message})`,
+  );
 });
 
 // A duplicate is the contract's error, decided before anything is posted.
@@ -603,7 +694,10 @@ await row("the duplicate row", async () => {
 
   // Two creates of one id racing past the existence check: the one that loses
   // gets SteVe's duplicate page, and must still read as the contract's error.
-  const raced = await Promise.allSettled([admin.create({ id: "CP-RACE" }), admin.create({ id: "CP-RACE" })]);
+  const raced = await Promise.allSettled([
+    admin.create({ id: "CP-RACE" }),
+    admin.create({ id: "CP-RACE" }),
+  ]);
   const lost = raced.filter((outcome) => outcome.status === "rejected");
   check(
     raced.some((outcome) => outcome.status === "fulfilled") &&
@@ -623,21 +717,36 @@ await row("the duplicate row", async () => {
 await row("the sign-in bounce row", async () => {
   const fake = fakeSteveManager();
   const admin = steveAdmin(fake);
-  await admin.create({ id: "CP-BOUNCE", security: { profile: 1, basicAuthPassword: OLD_PASSWORD } });
+  await admin.create({
+    id: "CP-BOUNCE",
+    security: { profile: 1, basicAuthPassword: OLD_PASSWORD },
+  });
   fake.expireSessionBeforeNextPost();
-  const error = await caught(admin.update("CP-BOUNCE", { security: { profile: 1, basicAuthPassword: "rotated-secret-0002" } }));
+  const error = await caught(
+    admin.update("CP-BOUNCE", {
+      security: { profile: 1, basicAuthPassword: "rotated-secret-0002" },
+    }),
+  );
   check(
     error instanceof CsmsNotDispatchedError,
     `a form POST bounced to sign-in throws CsmsNotDispatchedError (got ${String(error)})`,
   );
-  check(fake.stations.get("CP-BOUNCE")?.authPassword === OLD_PASSWORD, "the bounced update changed nothing");
+  check(
+    fake.stations.get("CP-BOUNCE")?.authPassword === OLD_PASSWORD,
+    "the bounced update changed nothing",
+  );
 });
 
 // SteVe redirects whether or not a row was written, so a create that cannot
 // be read back is not a success.
 await row("the read-back row", async () => {
-  const error = await caught(steveAdmin(fakeSteveManager({ forgetAdds: true })).create({ id: "CP-LOST" }));
-  check(isPlainError(error) && /read back/.test(error.message), `a create that cannot be read back throws (got ${String(error)})`);
+  const error = await caught(
+    steveAdmin(fakeSteveManager({ forgetAdds: true })).create({ id: "CP-LOST" }),
+  );
+  check(
+    isPlainError(error) && /read back/.test(error.message),
+    `a create that cannot be read back throws (got ${String(error)})`,
+  );
   const fake = fakeSteveManager({ forgetUpdates: true });
   const admin = steveAdmin(fake);
   await admin.create({ id: "CP-STILL" });
@@ -677,9 +786,16 @@ await row("the out-of-range entity row", async () => {
   const admin = steveAdmin(fake);
   const id = "CP&#999999999;";
   await admin.create({ id });
-  check((await admin.get(id))?.id === id, `get finds ${id}, whose reference is preserved rather than decoded`);
+  check(
+    (await admin.get(id))?.id === id,
+    `get finds ${id}, whose reference is preserved rather than decoded`,
+  );
   let found: unknown;
-  const thrown = await caught(admin.get("CP").then((value) => { found = value; }));
+  const thrown = await caught(
+    admin.get("CP").then((value) => {
+      found = value;
+    }),
+  );
   check(
     thrown === undefined && found === null,
     `get of CP is null, though the list it reads holds ${id} (threw ${String(thrown)})`,
@@ -692,7 +808,10 @@ await row("the LIKE row", async () => {
   await admin.create({ id: "CP-10" });
   check((await admin.get("CP-1")) === null, "get of CP-1 does not resolve to CP-10");
   check(
-    await rejectsWith(() => admin.update("CP-1", { registration: "Rejected" }), ChargePointNotFoundError),
+    await rejectsWith(
+      () => admin.update("CP-1", { registration: "Rejected" }),
+      ChargePointNotFoundError,
+    ),
     "update of CP-1 does not apply to CP-10",
   );
   await admin.delete("CP-1");
@@ -706,7 +825,10 @@ await row("the whole-form row", async () => {
   const admin = steveAdmin(fake);
   const description = `a & <b> "quoted" 'single'`;
   await admin.create({ id: "CP-FORM", description });
-  check((await admin.get("CP-FORM"))?.description === description, "a description with markup characters reads back as written");
+  check(
+    (await admin.get("CP-FORM"))?.description === description,
+    "a description with markup characters reads back as written",
+  );
   const station = fake.stations.get("CP-FORM");
   if (station) {
     station.note = "set by an operator";

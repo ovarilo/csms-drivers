@@ -32,13 +32,9 @@ export interface SteveApiConfig {
   password: string;
 }
 
-export function defaultApiConfig(
-  cfg: SteveUiConfig,
-  env: CsmsEnv = process.env,
-): SteveApiConfig {
+export function defaultApiConfig(cfg: SteveUiConfig, env: CsmsEnv = process.env): SteveApiConfig {
   return {
-    baseUrl:
-      env.STEVE_API_URL ?? cfg.baseUrl.replace(/\/manager\/?$/, "/api/v1"),
+    baseUrl: env.STEVE_API_URL ?? cfg.baseUrl.replace(/\/manager\/?$/, "/api/v1"),
     username: env.STEVE_API_USER ?? cfg.username,
     password: env.STEVE_API_PASS ?? "ocpp-tck",
   };
@@ -87,9 +83,7 @@ export class SteveWebApi {
       allowed: opts.allowed ?? [200, 201, 204],
       init: {
         method,
-        ...(opts.body === undefined
-          ? {}
-          : { body: JSON.stringify(opts.body) }),
+        ...(opts.body === undefined ? {} : { body: JSON.stringify(opts.body) }),
       },
     });
   }
@@ -120,16 +114,12 @@ export class SteveWebApi {
     throw new Error(
       res.status === 401 || res.status === 403
         ? `steve api: ${what} returned ${res.status}. WebAPI access is off until ` +
-          `web_user.api_password is set before using the WebAPI.`
+            `web_user.api_password is set before using the WebAPI.`
         : `steve api: ${what} returned ${res.status}: ${(await res.text()).slice(0, 300)}`,
     );
   }
 
-  private async raw(
-    path: string,
-    init: RequestInit,
-    params: QueryParams = [],
-  ): Promise<Response> {
+  private async raw(path: string, init: RequestInit, params: QueryParams = []): Promise<Response> {
     const query = new URLSearchParams(params as [string, string][]).toString();
     return fetch(`${this.cfg.baseUrl}${path}${query ? `?${query}` : ""}`, {
       ...init,

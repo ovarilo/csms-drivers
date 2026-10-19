@@ -117,10 +117,7 @@ export class CitrineMessageApi {
         signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
       });
     } catch (err) {
-      throw new CsmsNotDispatchedError(
-        what,
-        err instanceof Error ? err.message : String(err),
-      );
+      throw new CsmsNotDispatchedError(what, err instanceof Error ? err.message : String(err));
     }
 
     if (!res.ok) {
@@ -161,9 +158,7 @@ export class CitrineMessageApi {
       typeof c === "object" && c !== null;
 
     if (!confirmations.every(isConfirmation)) {
-      throw new Error(
-        `${what} returned a body that is not a confirmation array: ${preview(text)}`,
-      );
+      throw new Error(`${what} returned a body that is not a confirmation array: ${preview(text)}`);
     }
 
     const refused = confirmations.filter((c) => c.success !== true);

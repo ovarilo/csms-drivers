@@ -7,10 +7,7 @@
  * fakes observe the public factory result without starting a CSMS or TCK run.
  */
 
-import {
-  createCitrineOsCsmsDriver,
-  createSteveCsmsDriver,
-} from "@ovarilo/csms-drivers";
+import { createCitrineOsCsmsDriver, createSteveCsmsDriver } from "@ovarilo/csms-drivers";
 import type { FetchLike } from "@ovarilo/csms-drivers";
 
 const failures: string[] = [];
@@ -51,12 +48,21 @@ async function verifySteveFactory(): Promise<void> {
   const receipt = await driver.operations16.execute("CP-1", { action: "Reset", type: "Hard" });
   const form = new URLSearchParams(posts[0]?.body);
 
-  check(driver.capabilities.operations16.has("Reset"), "SteVe capability declaration includes its wired operation");
-  check(driver.operations201 === undefined, "SteVe factory does not claim an OCPP 2.0.1 operation surface");
+  check(
+    driver.capabilities.operations16.has("Reset"),
+    "SteVe capability declaration includes its wired operation",
+  );
+  check(
+    driver.operations201 === undefined,
+    "SteVe factory does not claim an OCPP 2.0.1 operation surface",
+  );
   check(receipt === "/manager/operations/tasks/42", "SteVe factory returns its task redirect");
   check(posts.length === 1, "SteVe factory posts one OCPP operation");
   check(posts[0]?.url.endsWith("/operations/v1.6/Reset"), "SteVe factory selects the Reset form");
-  check(form.get("chargePointSelectList") === "V_16_JSON;CP-1;-", "SteVe factory targets the requested station");
+  check(
+    form.get("chargePointSelectList") === "V_16_JSON;CP-1;-",
+    "SteVe factory targets the requested station",
+  );
   check(form.get("resetType") === "HARD", "SteVe factory maps the OCPP operation to the UI form");
 }
 
@@ -76,11 +82,23 @@ async function verifyCitrine16Factory(): Promise<void> {
   });
   const receipt = await driver.operations16.execute("CP-2", { action: "Reset", type: "Hard" });
 
-  check(driver.capabilities.operations16.has("Reset"), "CitrineOS capability declaration includes its wired operation");
-  check(driver.capabilities.operations201?.has("Reset") === true, "CitrineOS declares its wired OCPP 2.0.1 operation surface");
+  check(
+    driver.capabilities.operations16.has("Reset"),
+    "CitrineOS capability declaration includes its wired operation",
+  );
+  check(
+    driver.capabilities.operations201?.has("Reset") === true,
+    "CitrineOS declares its wired OCPP 2.0.1 operation surface",
+  );
   check(driver.operations201 !== undefined, "CitrineOS factory returns its OCPP 2.0.1 operations");
-  check(requestUrl.includes("/ocpp/1.6/configuration/reset?"), "CitrineOS factory sends a 1.6 Reset route");
-  check(requestUrl.includes("identifier=CP-2") && requestUrl.includes("tenantId=7"), "CitrineOS factory targets the station and tenant");
+  check(
+    requestUrl.includes("/ocpp/1.6/configuration/reset?"),
+    "CitrineOS factory sends a 1.6 Reset route",
+  );
+  check(
+    requestUrl.includes("identifier=CP-2") && requestUrl.includes("tenantId=7"),
+    "CitrineOS factory targets the station and tenant",
+  );
   check(requestBody === '{"type":"Hard"}', "CitrineOS factory serializes the 1.6 request body");
   check(receipt.includes('"success":true'), "CitrineOS factory returns the confirmation receipt");
 }

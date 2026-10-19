@@ -89,7 +89,8 @@ export class ObjectReader {
 
   oneOf<U extends string | number>(name: string, members: readonly U[]): U {
     const value = this.take(name);
-    if (!members.includes(value as U)) this.fail(name, `one of ${members.map((m) => JSON.stringify(m)).join(", ")}`);
+    if (!members.includes(value as U))
+      this.fail(name, `one of ${members.map((m) => JSON.stringify(m)).join(", ")}`);
     return value as U;
   }
 
@@ -112,7 +113,12 @@ export class ObjectReader {
         : null;
     if (!fields) this.fail(name, "an RFC 3339 date-time with an offset, e.g. 2030-01-02T03:04:05Z");
     const [year, month, day, hour, minute, second] = fields.slice(1, 7).map(Number) as [
-      number, number, number, number, number, number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
     ];
     const asWritten = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
     const sameFields =
@@ -123,7 +129,8 @@ export class ObjectReader {
       asWritten.getUTCMinutes() === minute &&
       asWritten.getUTCSeconds() === second;
     const offset = fields[8]!;
-    const offsetValid = offset === "Z" || (Number(offset.slice(1, 3)) <= 23 && Number(offset.slice(4, 6)) <= 59);
+    const offsetValid =
+      offset === "Z" || (Number(offset.slice(1, 3)) <= 23 && Number(offset.slice(4, 6)) <= 59);
     if (!sameFields || !offsetValid) this.fail(name, "a date-time that exists on the calendar");
     return new Date(value as string);
   }
@@ -174,5 +181,7 @@ export class ObjectReader {
 
 /** Drops `undefined` members, so an omitted JSON member stays omitted rather than present-and-undefined. */
 export function present<T extends object>(value: T): T {
-  return Object.fromEntries(Object.entries(value).filter(([, member]) => member !== undefined)) as T;
+  return Object.fromEntries(
+    Object.entries(value).filter(([, member]) => member !== undefined),
+  ) as T;
 }

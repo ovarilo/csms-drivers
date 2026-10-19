@@ -225,10 +225,7 @@ export interface ChargingSchedule201 {
     id: number;
     chargingRateUnit: ChargingRateUnit201;
     /** 1..N on the wire, and the first period's `startPeriod` must be 0. */
-    chargingSchedulePeriod: [
-        ChargingSchedulePeriod201,
-        ...ChargingSchedulePeriod201[]
-    ];
+    chargingSchedulePeriod: [ChargingSchedulePeriod201, ...ChargingSchedulePeriod201[]];
     startSchedule?: Date;
     duration?: number;
     minChargingRate?: number;

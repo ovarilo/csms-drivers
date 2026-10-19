@@ -37,7 +37,6 @@ export interface SteveUiConfig {
   password: string;
 }
 
-
 /**
  * The seam every request below goes through, so that
  * `tests/steve-ui-session-race.ts` can hand this class a fake SteVe: the
@@ -65,9 +64,7 @@ export const CSRF_RE = /name="_csrf"\s+value="([^"]*)"/;
 function extractCsrf(html: string): string {
   const match = CSRF_RE.exec(html);
   if (!match) {
-    throw new Error(
-      "steve: could not find _csrf token in response body (login may have failed)",
-    );
+    throw new Error("steve: could not find _csrf token in response body (login may have failed)");
   }
   return match[1];
 }
@@ -139,10 +136,7 @@ export class SteveUiOps {
   }
 
   private absorbSetCookie(res: Response): void {
-    const values =
-      typeof res.headers.getSetCookie === "function"
-        ? res.headers.getSetCookie()
-        : [];
+    const values = typeof res.headers.getSetCookie === "function" ? res.headers.getSetCookie() : [];
     for (const raw of values) {
       const pair = raw.split(";", 1)[0] ?? "";
       const idx = pair.indexOf("=");
@@ -171,10 +165,7 @@ export class SteveUiOps {
     return this.fetchImpl(`${this.cfg.baseUrl}/${path}`, {
       redirect: "manual",
       ...init,
-      signal: AbortSignal.any([
-        deadline,
-        AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
-      ]),
+      signal: AbortSignal.any([deadline, AbortSignal.timeout(DEFAULT_TIMEOUT_MS)]),
     });
   }
 
@@ -262,18 +253,12 @@ export class SteveUiOps {
    * three steps below are one read-modify-write over the cookie jar, and the
    * class comment says what interleaving two of them costs.
    */
-  async postForm(
-    path: string,
-    fields: Record<string, string>,
-  ): Promise<string> {
+  async postForm(path: string, fields: Record<string, string>): Promise<string> {
     return this.serialise(() => this.postFormExclusive(path, fields));
   }
 
   /** {@link postForm}'s body, which assumes it already holds the lock. */
-  private async postFormExclusive(
-    path: string,
-    fields: Record<string, string>,
-  ): Promise<string> {
+  private async postFormExclusive(path: string, fields: Record<string, string>): Promise<string> {
     const deadline = AbortSignal.timeout(SECTION_TIMEOUT_MS);
     await this.ensureLogin(deadline);
     const csrf = extractCsrf(await this.getExclusive(path, deadline));
@@ -395,7 +380,8 @@ async function redirectOrRefusal(res: Response, path: string): Promise<string> {
   }
   if (location) return location;
   const body = await res.text().catch(() => "<unreadable body>");
-  const detail = pageErrors(body) ?? (res.status >= 400 ? body.slice(0, 300) : "no error on the page");
+  const detail =
+    pageErrors(body) ?? (res.status >= 400 ? body.slice(0, 300) : "no error on the page");
   const refusal = `status ${res.status}: ${detail}`;
   // Any error status -- 4xx refused, 5xx failed -- means the form never
   // became an OCPP CALL, so nothing downstream can be a finding about the
@@ -410,7 +396,5 @@ async function redirectOrRefusal(res: Response, path: string): Promise<string> {
   if (res.status >= 400) {
     throw new CsmsNotDispatchedError(path, refusal);
   }
-  throw new Error(
-    `steve: no redirect Location header for ${path} (${refusal})`,
-  );
+  throw new Error(`steve: no redirect Location header for ${path} (${refusal})`);
 }

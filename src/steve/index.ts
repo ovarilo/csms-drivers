@@ -1,7 +1,11 @@
 // Copyright 2026 Julien Herr
 // SPDX-License-Identifier: Apache-2.0
 
-import { CSMS_OPERATION_16_ACTIONS, type CsmsCapabilities, type CsmsOperation16 } from "../contracts";
+import {
+  CSMS_OPERATION_16_ACTIONS,
+  type CsmsCapabilities,
+  type CsmsOperation16,
+} from "../contracts";
 import type { FetchLike } from "../contracts";
 import type { CsmsDriver } from "../models";
 import type { CsmsConnectorApi, CsmsSessionApi } from "../models";

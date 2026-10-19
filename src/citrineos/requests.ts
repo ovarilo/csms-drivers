@@ -97,7 +97,6 @@ export interface CitrineChargingProfile {
   };
 }
 
-
 /**
  * An OCPP request body with the `undefined` members dropped.
  *
@@ -113,9 +112,7 @@ export interface CitrineChargingProfile {
  * distinguishable -- see RemoteStartTransaction below.
  */
 function body(fields: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(fields).filter(([, value]) => value !== undefined),
-  );
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
 }
 
 /**
@@ -231,10 +228,7 @@ export async function toCitrineRequest(
  * namesake's module is a fact about this arrangement, not one to route by: the
  * two device-model actions have no namesake to agree with.
  */
-export function toCitrineRequest201(
-  op: CsmsOperation201,
-  variant: CitrineVariant,
-): CitrineRequest {
+export function toCitrineRequest201(op: CsmsOperation201, variant: CitrineVariant): CitrineRequest {
   return { ocppVersion: "2.0.1", ...route201(op, variant) };
 }
 
@@ -562,9 +556,7 @@ async function route16(
           connectorId: op.connectorId,
           idTag: op.idTag,
           chargingProfile:
-            op.chargingProfile === undefined
-              ? undefined
-              : profileFor(op.chargingProfile, refs),
+            op.chargingProfile === undefined ? undefined : profileFor(op.chargingProfile, refs),
         }),
       };
 
@@ -604,8 +596,7 @@ async function route16(
         action: "setChargingProfile",
         body: {
           connectorId: op.connectorId,
-          csChargingProfiles:
-            transactionId === undefined ? profile : { ...profile, transactionId },
+          csChargingProfiles: transactionId === undefined ? profile : { ...profile, transactionId },
         },
       };
     }
