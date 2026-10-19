@@ -11,8 +11,10 @@ name: Release
 # and records the integrity of the package packed from it; the publish job puts that dist/ into a
 # checkout of the same commit and refuses to publish unless the package packs to the same
 # integrity. It publishes from the directory, not from a tarball, because only a directory publish
-# records the gitHead that the registry-state check relies on. A rerun of the failed jobs reuses
-# the artifact of the run; a rerun of every job rebuilds and re-gates it.
+# records the gitHead that the registry-state check relies on. A rerun of the failed jobs is meant
+# to reuse the artifact of the run; if it cannot fetch it, rerun every job: that rebuilds and
+# re-gates the same commit to the same integrity, and registry-state skips a version already
+# published from it.
 
 on:
   workflow_dispatch:
@@ -124,7 +126,7 @@ jobs:
           vp exec bun scripts/check-package.ts
           integrity="$(npm pack --dry-run --json --ignore-scripts | jq -er '.[0].integrity')"
           if [[ -z "${VALIDATED}" || "${integrity}" != "${VALIDATED}" ]]; then
-            echo "The package packs to ${integrity}, not to the validated ${VALIDATED}" >&2
+            echo "The package packs to ${integrity}, not to the validated '${VALIDATED}': re-run all jobs" >&2
             exit 1
           fi
 
