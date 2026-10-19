@@ -401,7 +401,10 @@ const FLAWS: Readonly<Record<string, FlawCase>> = {
       create: (definition) =>
         definition.security
           ? strict.create(definition)
-          : appliesAnyway(strict.create, lax.create)(definition),
+          : appliesAnyway(
+              (d: ChargePointDefinition) => strict.create(d),
+              (d: ChargePointDefinition) => lax.create(d),
+            )(definition),
     }),
   },
   "update-ignores-registration": {
@@ -479,15 +482,20 @@ const FLAWS: Readonly<Record<string, FlawCase>> = {
   // Part 4.
   "create-accepts-undeclared": {
     refusedFor: RULE.createRefusesUndeclared,
-    admin: ({ lax }) => ({ create: lax.create }),
+    admin: ({ lax }) => ({ create: (definition) => lax.create(definition) }),
   },
   "refused-create-stores": {
     refusedFor: RULE.refusedCreateStoresNothing,
-    admin: ({ strict, lax }) => ({ create: appliesAnyway(strict.create, lax.create) }),
+    admin: ({ strict, lax }) => ({
+      create: appliesAnyway(
+        (d: ChargePointDefinition) => strict.create(d),
+        (d: ChargePointDefinition) => lax.create(d),
+      ),
+    }),
   },
   "update-accepts-undeclared": {
     refusedFor: RULE.updateRefusesUndeclared,
-    admin: ({ lax }) => ({ update: lax.update }),
+    admin: ({ lax }) => ({ update: (cpId, patch) => lax.update(cpId, patch) }),
   },
   "refused-update-applies-registration": {
     refusedFor: RULE.refusedUpdateChangesNothing,

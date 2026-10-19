@@ -131,7 +131,7 @@ function select(name: string, values: readonly string[], selected: string | null
 
 /** The fields a charge-point form posts, as Spring binds them: trimmed, empty is null. */
 interface Bound {
-  value(key: string): string | null;
+  readonly value: (key: string) => string | null;
   readonly insertFlag: boolean | null;
 }
 
@@ -294,7 +294,7 @@ export function fakeSteveManager(options: FakeSteveOptions = {}): FakeSteveManag
       res.headers.append("set-cookie", `JSESSIONID=${id}; Path=/steve; HttpOnly`);
       return res;
     }
-    const fields = new URLSearchParams(String(init?.body ?? ""));
+    const fields = new URLSearchParams(await new Response(init?.body).text());
     if (path === "signin" && method === "POST") {
       if (!session || fields.get("_csrf") !== session.token)
         return new Response("forbidden", { status: 403 });

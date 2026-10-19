@@ -5,7 +5,7 @@ import { createCitrineOsCsmsDriver, type FetchLike } from "@ovarilo/csms-drivers
 
 const requests: { url: string; body: string }[] = [];
 const fetch: FetchLike = async (input, init) => {
-  requests.push({ url: String(input), body: String(init?.body ?? "") });
+  requests.push({ url: String(input), body: await new Response(init?.body).text() });
   return new Response(JSON.stringify([{ success: true, payload: { status: "Accepted" } }]), {
     status: 200,
     headers: { "content-type": "application/json" },

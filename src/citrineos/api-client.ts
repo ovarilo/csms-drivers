@@ -92,7 +92,7 @@ export class CitrineMessageApi {
       identifier: cpId,
       tenantId: String(this.cfg.tenantId),
     });
-    return `${this.cfg.apiUrl}/ocpp/${req.ocppVersion}/${req.module}/${req.action}?${query}`;
+    return `${this.cfg.apiUrl}/ocpp/${req.ocppVersion}/${req.module}/${req.action}?${query.toString()}`;
   }
 
   /**

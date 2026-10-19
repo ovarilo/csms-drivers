@@ -25,6 +25,9 @@ import type { CsmsEnv } from "../contracts";
 
 const HTTP_TIMEOUT_MS = 15_000;
 
+/** The client owns the headers (auth, JSON), so a call cannot pass any. */
+type ApiRequestInit = Omit<RequestInit, "headers">;
+
 export interface SteveApiConfig {
   /** e.g. http://localhost:8180/steve/api/v1 */
   baseUrl: string;
@@ -106,7 +109,7 @@ export class SteveWebApi {
   private async request(
     method: string,
     path: string,
-    opts: { params?: QueryParams; allowed: readonly number[]; init?: RequestInit },
+    opts: { params?: QueryParams; allowed: readonly number[]; init?: ApiRequestInit },
   ): Promise<Response> {
     const res = await this.raw(path, opts.init ?? {}, opts.params);
     if (opts.allowed.includes(res.status)) return res;
@@ -119,14 +122,17 @@ export class SteveWebApi {
     );
   }
 
-  private async raw(path: string, init: RequestInit, params: QueryParams = []): Promise<Response> {
+  private async raw(
+    path: string,
+    init: ApiRequestInit,
+    params: QueryParams = [],
+  ): Promise<Response> {
     const query = new URLSearchParams(params as [string, string][]).toString();
     return fetch(`${this.cfg.baseUrl}${path}${query ? `?${query}` : ""}`, {
       ...init,
       headers: {
         authorization: this.authorization,
         "content-type": "application/json",
-        ...(init.headers ?? {}),
       },
       signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
     });

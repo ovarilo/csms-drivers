@@ -35,7 +35,7 @@ async function verifySteveFactory(): Promise<void> {
       return new Response('<input name="_csrf" value="operation-token">');
     }
     if (url.endsWith("/operations/v1.6/Reset") && method === "POST") {
-      posts.push({ url, body: String(init?.body ?? "") });
+      posts.push({ url, body: await new Response(init?.body).text() });
       return redirect("/manager/operations/tasks/42");
     }
     return new Response("unexpected request", { status: 500 });
@@ -71,7 +71,7 @@ async function verifyCitrine16Factory(): Promise<void> {
   let requestBody = "";
   const fetch: FetchLike = async (input, init) => {
     requestUrl = String(input);
-    requestBody = String(init?.body ?? "");
+    requestBody = await new Response(init?.body).text();
     return Response.json([{ success: true, payload: "Accepted" }]);
   };
 
