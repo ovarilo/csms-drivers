@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript consumers can resolve the package with `"moduleResolution": "nodenext"` as well
   as `"bundler"`.
 
+### Removed
+
+- **Breaking:** installing from the git repository (`github:ovarilo/csms-drivers#<ref>`) is no
+  longer supported. `dist/` is built at release time and not committed, so a checkout lacks what
+  Node and TypeScript load. Install the versions published to GitHub Packages instead.
+
 ## [0.0.1] - 2026-10-19
 
 ### Added

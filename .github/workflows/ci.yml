@@ -27,7 +27,8 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
 
-      # Format, lint, tsc, tests, committed types and package content: `bun run check`.
+      # `bun run check` from the clean checkout: format, lint, tsc, then `bun run test` (build of
+      # dist/, every test, the npm/Node 26/Bun package smoke) and the packed package content.
       - name: Check
         run: vp exec bun run check
 

@@ -1,6 +1,8 @@
 {
   "//": [
-    "Emits dist/: ESM JavaScript and its declarations, both COMMITTED.",
+    "Emits dist/: ESM JavaScript and its declarations. Generated, ignored by",
+    "git, built by `bun run build` (which `bun run test` runs first) and",
+    "published by the Release workflow.",
     "",
     "Node refuses to strip types under node_modules, so a Node consumer needs",
     "JavaScript; the sources import with explicit `.ts` specifiers, rewritten",
@@ -11,11 +13,8 @@
     "with the consumer's options (noUnusedLocals, erasableSyntaxOnly, ...),",
     "producing errors inside node_modules that no consumer can fix.",
     "",
-    "Both are committed rather than built on install: this package is consumed",
-    "as a pinned git dependency, and a git dependency does not reliably run",
-    "prepack/prepare under bun.",
-    "",
-    "scripts/dist-current.sh rebuilds and diffs, so a stale dist/ fails."
+    "Consumers install the published package from GitHub Packages: a git",
+    "dependency has no dist/ unless the consumer builds it."
   ],
   "extends": "./tsconfig.json",
   "compilerOptions": {

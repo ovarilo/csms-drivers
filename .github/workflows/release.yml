@@ -2,9 +2,19 @@ name: Release
 
 # Dispatched from main once the release pull request (`bun scripts/release.ts prepare X.Y.Z`,
 # commit `chore(release): X.Y.Z`) is merged. Validates that package.json and CHANGELOG.md agree,
-# runs the full gate (`bun run check`), publishes to GitHub Packages, then creates the `vX.Y.Z`
-# tag and the GitHub Release whose body is the changelog section. Every publishing step is idempotent: re-run a
-# failed run (`gh run rerun <id> --failed`) rather than dispatching again.
+# runs the full gate (`bun run check`, which builds dist/), publishes to GitHub Packages, then
+# creates the `vX.Y.Z` tag and the GitHub Release whose body is the changelog section. Every
+# publishing step is idempotent: re-run a failed run (`gh run rerun <id> --failed`) rather than
+# dispatching again.
+#
+# The package published is the one the gate validated: the gate uploads its dist/ as an artifact
+# and records the integrity of the package packed from it; the publish job puts that dist/ into a
+# checkout of the same commit and refuses to publish unless the package packs to the same
+# integrity (.github/actions/validated-dist). The handoff job runs that check on dry runs as well. It publishes from the directory, not from a tarball, because only a directory publish
+# records the gitHead that the registry-state check relies on. A rerun of the failed jobs is meant
+# to reuse the artifact of the run; if it cannot fetch it, rerun every job: that rebuilds and
+# re-gates the same commit to the same integrity, and registry-state skips a version already
+# published from it.
 
 on:
   workflow_dispatch:
@@ -38,6 +48,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       notes: ${{ steps.notes.outputs.notes }}
+      integrity: ${{ steps.pack.outputs.integrity }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -66,9 +77,48 @@ jobs:
       - name: Check
         run: vp exec bun run check
 
+      - name: Record the integrity of the validated package
+        id: pack
+        run: |
+          set -euo pipefail
+          integrity="$(npm pack --dry-run --json --ignore-scripts | jq -er '.[0].integrity')"
+          echo "integrity=${integrity}" >> "${GITHUB_OUTPUT}"
+          echo "Validated package: ${integrity}"
+
+      - name: Upload the validated build
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  # The artifact handoff on its own, without packages: write, so that a dry run rehearses it too.
+  handoff:
+    name: Check the artifact handoff
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Take the validated build
+        uses: ./.github/actions/validated-dist
+        with:
+          integrity: ${{ needs.validate.outputs.integrity }}
+
   publish:
     name: Publish to GitHub Packages
-    needs: validate
+    needs: [validate, handoff]
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -83,6 +133,11 @@ jobs:
 
       - name: Setup
         uses: ./.github/actions/setup
+
+      - name: Take the validated build
+        uses: ./.github/actions/validated-dist
+        with:
+          integrity: ${{ needs.validate.outputs.integrity }}
 
       # Skips a version already published from this commit; fails on one published from another
       # commit and on any registry error other than "not found".

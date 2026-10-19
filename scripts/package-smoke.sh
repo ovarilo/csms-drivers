@@ -4,10 +4,13 @@
 # Node's own module resolution.
 #
 # Node refuses to strip types under node_modules, so this is what proves that
-# the committed dist/ JavaScript is complete: every relative specifier
-# rewritten to `.js`, no directory import, no Bun global.
+# the dist/ JavaScript is complete: every relative specifier rewritten to
+# `.js`, no directory import, no Bun global.
 #
-#   bash scripts/package-smoke.sh
+# dist/ is generated and ignored by git: `bun run test` builds it first. Run
+# alone, this packs whatever dist/ holds, so build after changing src/.
+#
+#   bun run build && bash scripts/package-smoke.sh
 #
 # NODE26 overrides how Node 26 is run (default: `mise exec node@26 -- node`,
 # or plain `node` when it already is 26).
@@ -18,6 +21,13 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+
+# Without it npm packs a tarball whose exports point at nothing, and the
+# failure surfaces later as an unhelpful ERR_MODULE_NOT_FOUND.
+if [ ! -f dist/index.js ] || [ ! -f dist/server/index.js ]; then
+  echo "FAIL: dist/ is not built — run 'bun run build' first." >&2
+  exit 1
+fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT INT TERM
