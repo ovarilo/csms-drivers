@@ -13,8 +13,11 @@ dependency and no tie back to the TCK.
 
 ## Install
 
-The package ships TypeScript sources and is consumed with [Bun](https://bun.sh)
-as a git dependency pinned to a tag or commit:
+The package runs on [Bun](https://bun.sh) and on Node 26. It ships its
+TypeScript sources, which Bun loads through the `bun` export condition, and the
+ESM JavaScript and declarations built from them in `dist/`, which Node and
+TypeScript load. It can be consumed as a git dependency pinned to a tag or
+commit:
 
 ```sh
 bun add github:ovarilo/csms-drivers#<tag-or-commit>
@@ -37,10 +40,10 @@ or in `.npmrc`:
 
 then `bun add @ovarilo/csms-drivers`.
 
-The generated declarations in `types/` are committed, because a git dependency
-does not reliably run `prepare` under Bun. The consumer's TypeScript needs
-`"moduleResolution": "bundler"`; `@ovarilo/csms-drivers/tsconfig` is a base
-configuration that sets it:
+`dist/` is committed, because a git dependency does not reliably run `prepare`
+under Bun. The consumer's TypeScript resolves the package with
+`"moduleResolution": "bundler"` or `"nodenext"`; `@ovarilo/csms-drivers/tsconfig`
+is a base configuration that sets `bundler`:
 
 ```json
 { "extends": "@ovarilo/csms-drivers/tsconfig", "include": ["src/**/*.ts"] }
@@ -160,7 +163,7 @@ bun install
 bunx vp config --no-agent  # once: installs the pre-commit and commit-msg hooks
 bun run check         # format, lint, type-check, test, package content: what CI runs
 bun run format        # rewrite with Oxfmt (Vite+)
-bun run build:types   # regenerate types/ after an API change, and commit it
+bun run build         # regenerate dist/ after any change under src/, and commit it
 ```
 
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/),

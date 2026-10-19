@@ -33,13 +33,13 @@ import {
   type CsmsOperation16,
   type CsmsOperation201,
   type TransactionRef,
-} from "../contracts";
+} from "../contracts.ts";
 import {
   NO_RESERVATIONS,
   unroutedActions,
   unroutedActions201,
   type CitrineVariant,
-} from "./variant";
+} from "./variant.ts";
 
 /** The endpointPrefix values CitrineOS's shipped `docker` config declares. */
 export type CitrineModule =

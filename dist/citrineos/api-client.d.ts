@@ -52,9 +52,9 @@
  * a half and not an oversight. It is what stops this being a blanket
  * conversion, and it is the half worth a guard.
  */
-import { type FetchLike } from "../contracts";
-import type { CitrineApiConfig } from "./config";
-import type { CitrineRequest } from "./requests";
+import { type FetchLike } from "../contracts.ts";
+import type { CitrineApiConfig } from "./config.ts";
+import type { CitrineRequest } from "./requests.ts";
 export declare class CitrineMessageApi {
     private readonly cfg;
     private readonly fetchImpl;

@@ -50,8 +50,8 @@ import {
   type ChargePointSecurity,
   type ChargePointSecurityProfile,
   type CsmsChargePointAdmin,
-} from "../charge-points";
-import { CsmsNotDispatchedError, UnsupportedOperationError } from "../contracts";
+} from "../charge-points.ts";
+import { CsmsNotDispatchedError, UnsupportedOperationError } from "../contracts.ts";
 import {
   chargeBoxPkOf,
   chargePointFromForm,
@@ -59,9 +59,9 @@ import {
   STEVE_CHARGE_POINT_PAGES as PAGES,
   steveStoredDescription,
   type ChargePointFormChange,
-} from "./forms";
-import { readForm } from "./html-form";
-import type { SteveUiOps } from "./ui-client";
+} from "./forms.ts";
+import { readForm } from "./html-form.ts";
+import type { SteveUiOps } from "./ui-client.ts";
 
 /** Every profile SteVe's form offers. 2 and 3 need TLS on the OCPP endpoint,
  *  which is the deployment's concern; the record accepts them regardless. */

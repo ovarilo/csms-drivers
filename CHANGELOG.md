@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Run on Node 26: the package ships ESM JavaScript in `dist/`, beside its declarations, and
+  Node loads it through the `default` export condition. Bun keeps loading `src/` through the
+  `bun` condition.
+- TypeScript consumers can resolve the package with `"moduleResolution": "nodenext"` as well
+  as `"bundler"`.
+
 ## [0.0.1] - 2026-10-19
 
 ### Added

@@ -1,4 +1,4 @@
-import { type CsmsEnv, type CsmsOperation16Action, type CsmsOperation201Action } from "../contracts";
+import { type CsmsEnv, type CsmsOperation16Action, type CsmsOperation201Action } from "../contracts.ts";
 export type CitrineVariant = "v1" | "v2";
 export declare const DEFAULT_VARIANT: CitrineVariant;
 export declare function resolveVariant(env: CsmsEnv): CitrineVariant;

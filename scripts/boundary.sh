@@ -6,6 +6,10 @@
 # one (`some-package`) would give the library a runtime dependency, and it has
 # none. `export ... from` and `import(...)` count as much as `import`.
 #
+# Every relative specifier names a `.ts` file: tsconfig.build.json rewrites
+# those to `.js`, and leaves an extensionless or directory specifier as it is,
+# which Node cannot resolve from dist/.
+#
 # The server is a transport adapter over the generic contract
 # (juherr/open-ocpp-tck#156): an allowlist rather than a list of drivers, so a
 # third bundled driver is covered the day it is added. Every relative
@@ -27,8 +31,16 @@ if [ -n "$bare" ]; then
   exit 1
 fi
 
+extensionless="$(grep -R -n -E "${specifier}\.\.?/?[^\"']*[\"']" src --include='*.ts' \
+  | grep -v -E "${specifier}\.\.?/[^\"']*\.ts[\"']" || true)"
+if [ -n "$extensionless" ]; then
+  echo "FAIL: a relative specifier does not name a .ts file:" >&2
+  printf '%s\n' "$extensionless" >&2
+  exit 1
+fi
+
 server_imports="$(grep -R -n -E "${specifier}\.\.?/" src/server --include='*.ts' \
-  | grep -v -E "[\"'](\./[^/\"']+|\.\./(contracts|models|charge-points))[\"']" || true)"
+  | grep -v -E "[\"'](\./[^/\"']+|\.\./(contracts|models|charge-points)\.ts)[\"']" || true)"
 if [ -n "$server_imports" ]; then
   echo "FAIL: the HTTP adapter imports beyond the generic contract:" >&2
   printf '%s\n' "$server_imports" >&2

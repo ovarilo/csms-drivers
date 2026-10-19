@@ -12,8 +12,8 @@ import type {
   ChargePointSecurity,
   ChargePointSecurityProfile,
   ChargePointUpdate,
-} from "../charge-points";
-import { InvalidInputError, literals, ObjectReader, present } from "./decode";
+} from "../charge-points.ts";
+import { InvalidInputError, literals, ObjectReader, present } from "./decode.ts";
 
 const REGISTRATIONS = literals<ChargePointRegistration>({
   Accepted: true,

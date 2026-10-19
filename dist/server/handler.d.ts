@@ -1,4 +1,4 @@
-import type { CsmsDriver } from "../models";
+import type { CsmsDriver } from "../models.ts";
 /** Who the driver is. Passed in rather than read off the driver, which does not carry it. */
 export interface CsmsHttpAbout {
     readonly id: string;

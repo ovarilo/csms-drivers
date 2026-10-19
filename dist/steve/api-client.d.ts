@@ -18,8 +18,8 @@
  * which is `provision.ts`'s job, not this file's. A caller that gets 401 here
  * has not provisioned; the message says so.
  */
-import type { SteveUiConfig } from "./ui-client";
-import type { CsmsEnv } from "../contracts";
+import type { SteveUiConfig } from "./ui-client.ts";
+import type { CsmsEnv } from "../contracts.ts";
 export interface SteveApiConfig {
     /** e.g. http://localhost:8180/steve/api/v1 */
     baseUrl: string;

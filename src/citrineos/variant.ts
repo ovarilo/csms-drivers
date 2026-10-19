@@ -6,7 +6,7 @@ import {
   type CsmsEnv,
   type CsmsOperation16Action,
   type CsmsOperation201Action,
-} from "../contracts";
+} from "../contracts.ts";
 
 export type CitrineVariant = "v1" | "v2";
 export const DEFAULT_VARIANT: CitrineVariant = "v2";

@@ -13,9 +13,9 @@ import type {
   ChargePointDetails,
   ChargePointRegistration,
   ChargePointSecurityProfile,
-} from "../charge-points";
-import { assertNever, type CsmsOperation16 } from "../contracts";
-import { decodeHtml } from "./html-form";
+} from "../charge-points.ts";
+import { assertNever, type CsmsOperation16 } from "../contracts.ts";
+import { decodeHtml } from "./html-form.ts";
 
 /**
  * SteVe's ReserveNow `expiry` and UpdateFirmware `retrieveDateTime` inputs
