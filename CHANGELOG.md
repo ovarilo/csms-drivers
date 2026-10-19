@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1] - 2026-10-19
+
 ### Added
 
 - Typed OCPP 1.6 and 2.0.1 operation contracts (`CsmsDriver`, `CsmsOperation16`,
@@ -20,4 +22,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Shared TypeScript base config for consumers (`@ovarilo/csms-drivers/tsconfig`).
 - Publication to GitHub Packages, next to the pinned git dependency.
 
-[unreleased]: https://github.com/ovarilo/csms-drivers/commits/main
+[unreleased]: https://github.com/ovarilo/csms-drivers/compare/v0.0.1...HEAD
+[0.0.1]: https://github.com/ovarilo/csms-drivers/releases/tag/v0.0.1
