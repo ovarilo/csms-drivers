@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-10-19
+
 ### Added
 
 - Run on Node 26: the package ships ESM JavaScript in `dist/`, beside its declarations, and
@@ -36,5 +38,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Shared TypeScript base config for consumers (`@ovarilo/csms-drivers/tsconfig`).
 - Publication to GitHub Packages, next to the pinned git dependency.
 
-[unreleased]: https://github.com/ovarilo/csms-drivers/compare/v0.0.1...HEAD
+[unreleased]: https://github.com/ovarilo/csms-drivers/compare/v0.0.2...HEAD
+[0.0.2]: https://github.com/ovarilo/csms-drivers/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/ovarilo/csms-drivers/releases/tag/v0.0.1
