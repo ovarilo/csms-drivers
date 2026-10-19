@@ -13,7 +13,7 @@ Consumers install it as a pinned git dependency (`bun add github:ovarilo/csms-dr
 ```sh
 bun install
 bunx vp config --no-agent # once: installs the pre-commit (vp staged) and commit-msg (commitlint) hooks
-bun run check            # vp check (Oxfmt + Oxlint) + typecheck + test: what CI runs
+bun run check            # vp check (Oxfmt + Oxlint) + typecheck + test + package content: what CI runs
 bun run format           # Oxfmt rewrite
 bun run typecheck        # tsc --noEmit over src/, tests/, examples/, scripts/
 bun run test             # boundary guard, committed-types check, every test, the example
@@ -29,7 +29,7 @@ Tests are plain Bun scripts, not a test runner. Each one collects failures throu
 ## Invariants enforced by scripts
 
 - **`types/` is generated but committed** (a git dependency does not run `prepare` under Bun). `scripts/types-current.sh` rebuilds into a temporary directory and diffs, so any change to an exported signature needs `bun run build:types` and a commit of `types/`.
-- **Vite+ never touches `types/`**: `vite.config.ts` excludes it from Oxfmt and Oxlint, since `types-current.sh` diffs it byte for byte. tsc 5.9 stays the authoritative type-check; `vp check`'s type-aware lint is additional. No `prepare` script: git-dependency consumers would run it without Vite+.
+- **Vite+ never touches `types/`**: `vite.config.ts` excludes it from Oxfmt and Oxlint, since `types-current.sh` diffs it byte for byte. tsc 5.9 is the only type-check (`typeAware` lint rules, no `typeCheck`). No `prepare` script: git-dependency consumers would run it without Vite+.
 - **`scripts/check-package.sh`**: the `npm pack` listing carries every exports target and no development file.
 - **`scripts/boundary.sh`**:
   - every import under `src/` is relative or `node:*`, never a package;

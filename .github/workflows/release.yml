@@ -2,8 +2,8 @@ name: Release
 
 # Dispatched from main once the release pull request (`bun scripts/release.ts prepare X.Y.Z`,
 # commit `chore(release): X.Y.Z`) is merged. Validates that package.json and CHANGELOG.md agree,
-# runs the full gate, publishes to GitHub Packages, then creates the `vX.Y.Z` tag and the GitHub
-# Release whose body is the changelog section. Every publishing step is idempotent: re-run a
+# runs the full gate (`bun run check`), publishes to GitHub Packages, then creates the `vX.Y.Z`
+# tag and the GitHub Release whose body is the changelog section. Every publishing step is idempotent: re-run a
 # failed run (`gh run rerun <id> --failed`) rather than dispatching again.
 
 on:
@@ -36,52 +36,40 @@ jobs:
     name: Validate and gate
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      notes: ${{ steps.notes.outputs.notes }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
-      - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
-        with:
-          node-version: "24"
-          cache: true
+      - name: Setup
+        uses: ./.github/actions/setup
 
-      - name: Install
-        run: vp install --frozen-lockfile
-
-      - name: Validate version, package.json and changelog
+      # Refused unless package.json is the version and CHANGELOG.md has its dated, non-empty section.
+      - name: Validate version and extract the release notes
+        id: notes
         run: |
           set -euo pipefail
           [[ "${GITHUB_REF}" == "refs/heads/main" ]] || { echo "Releases run from main only" >&2; exit 1; }
-          package_version="$(node -p 'require("./package.json").version')"
-          [[ "${package_version}" == "${RELEASE_VERSION}" ]] \
-            || { echo "package.json is ${package_version}, not ${RELEASE_VERSION}: merge the release pull request first" >&2; exit 1; }
-          vp exec bun scripts/release.ts notes "${RELEASE_VERSION}" > /dev/null
+          notes="$(vp exec bun scripts/release.ts notes "${RELEASE_VERSION}")"
+          delimiter="notes-$(openssl rand -hex 8)"
+          printf 'notes<<%s\n%s\n%s\n' "${delimiter}" "${notes}" "${delimiter}" >> "${GITHUB_OUTPUT}"
 
       - name: Check the tag is free or already on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="v${RELEASE_VERSION}"
-          remote="$(git ls-remote --tags origin "refs/tags/${tag}^{}" | awk '{print $1}')"
-          [[ -n "${remote}" ]] || remote="$(git ls-remote --tags origin "refs/tags/${tag}" | awk '{print $1}')"
-          if [[ -n "${remote}" && "${remote}" != "${GITHUB_SHA}" ]]; then
-            echo "Tag ${tag} already points to ${remote}, not ${GITHUB_SHA}" >&2
+          tagged="$(gh api "repos/${GITHUB_REPOSITORY}/commits/v${RELEASE_VERSION}" --jq .sha 2> /dev/null || true)"
+          if [[ -n "${tagged}" && "${tagged}" != "${GITHUB_SHA}" ]]; then
+            echo "Tag v${RELEASE_VERSION} already points to ${tagged}, not ${GITHUB_SHA}" >&2
             exit 1
           fi
 
-      - name: Format and lint
-        run: vp check
-
-      - name: Type-check
-        run: vp exec bun run typecheck
-
-      - name: Test
-        run: vp exec bun run test
-
-      - name: Check the package content
-        run: vp exec bash scripts/check-package.sh
+      - name: Check
+        run: vp exec bun run check
 
   publish:
     name: Publish to GitHub Packages
@@ -98,11 +86,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
-        with:
-          node-version: "24"
-
+      # The runner's npm is enough: nothing is built, package.json and its files ship as committed.
       - name: Publish unless already published
         env:
           NODE_AUTH_TOKEN: ${{ github.token }}
@@ -124,34 +108,24 @@ jobs:
 
   release:
     name: Tag and GitHub Release
-    needs: publish
+    needs: [validate, publish]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-
-      - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@250f29ce396baf5e8f24498e17c0dfdebabc26eb # v1
-        with:
-          node-version: "24"
-
       - name: Create the tag and the GitHub Release unless they exist
         env:
           GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ needs.validate.outputs.notes }}
         run: |
           set -euo pipefail
           tag="v${RELEASE_VERSION}"
-          if gh release view "${tag}" > /dev/null 2>&1; then
+          if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" > /dev/null 2>&1; then
             echo "Release ${tag} already exists"
             exit 0
           fi
-          notes="${RUNNER_TEMP}/release-notes.md"
-          vp exec bun scripts/release.ts notes "${RELEASE_VERSION}" > "${notes}"
           prerelease=()
           [[ "${RELEASE_VERSION}" != *-* ]] || prerelease=(--prerelease)
-          gh release create "${tag}" --target "${GITHUB_SHA}" --title "${tag}" --notes-file "${notes}" "${prerelease[@]}"
+          printf '%s\n' "${NOTES}" | gh release create "${tag}" --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" --title "${tag}" --notes-file - "${prerelease[@]}"

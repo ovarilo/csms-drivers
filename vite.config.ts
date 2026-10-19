@@ -4,7 +4,7 @@
 import { defineConfig } from "vite-plus";
 
 // Vite+ drives lint (Oxlint) and format (Oxfmt) only: tests stay plain Bun scripts and nothing is
-// bundled. tsc remains the authoritative type-check, since it also emits types/.
+// bundled. tsc is the only type-check, since it also emits types/.
 export default defineConfig({
   fmt: {
     // types/ is tsc output, diffed byte for byte by scripts/types-current.sh: never reformat it.
@@ -16,9 +16,9 @@ export default defineConfig({
   },
   lint: {
     ignorePatterns: ["types/**"],
+    // Type-aware rules only: tsc (`bun run typecheck`, types-current.sh) is the type-check.
     options: {
       typeAware: true,
-      typeCheck: true,
     },
   },
   staged: {

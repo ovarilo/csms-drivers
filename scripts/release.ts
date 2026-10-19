@@ -4,7 +4,8 @@
  * Release helper over CHANGELOG.md (Keep a Changelog 1.1.0).
  *
  *   bun scripts/release.ts prepare X.Y.Z   dates the Unreleased section and bumps package.json
- *   bun scripts/release.ts notes X.Y.Z     prints the X.Y.Z section, the GitHub Release body
+ *   bun scripts/release.ts notes X.Y.Z     prints the X.Y.Z section, the GitHub Release body,
+ *                                          refused unless package.json is X.Y.Z
  *
  * `prepare` builds the release pull request; the dispatched Release workflow then checks that
  * package.json and the changelog agree, publishes, tags and calls `notes`.
@@ -12,7 +13,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 
-const RELEASE_VERSION = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
+const RELEASE_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const UNRELEASED_HEADING = /^## \[Unreleased\][^\n]*$/m;
 const UNRELEASED_LINK = /^\[unreleased\]: (.+)$/im;
 
@@ -20,23 +21,16 @@ function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function parse(version: string): RegExpMatchArray {
-  const match = RELEASE_VERSION.exec(version);
-  if (!match) throw new Error(`${version} is not a release version (X.Y.Z or X.Y.Z-prerelease)`);
-  return match;
+function assertVersion(version: string): void {
+  if (!RELEASE_VERSION.test(version)) {
+    throw new Error(`${version} is not a release version (X.Y.Z or X.Y.Z-prerelease)`);
+  }
 }
 
 /** Refuses a malformed version and one lower than package.json's (equal is the first release). */
 export function assertReleasable(version: string, current: string): void {
-  const next = parse(version);
-  const now = parse(current);
-  for (let i = 1; i <= 3; i++) {
-    const delta = Number(next[i]) - Number(now[i]);
-    if (delta > 0) return;
-    if (delta < 0) throw new Error(`${version} is lower than package.json version ${current}`);
-  }
-  if (next[4] === undefined && now[4] !== undefined) return;
-  if (next[4] !== undefined && now[4] === undefined) {
+  assertVersion(version);
+  if (Bun.semver.order(version, current) < 0) {
     throw new Error(`${version} is lower than package.json version ${current}`);
   }
 }
@@ -55,7 +49,7 @@ export function prepareChangelog(
   date: string,
   repoUrl: string,
 ): string {
-  parse(version);
+  assertVersion(version);
   if (new RegExp(`^## \\[${escape(version)}\\]`, "m").test(changelog)) {
     throw new Error(`CHANGELOG.md already has a section for ${version}`);
   }
@@ -66,19 +60,19 @@ export function prepareChangelog(
     throw new Error("the Unreleased section of CHANGELOG.md is empty: nothing to release");
   }
 
-  let out = `${changelog.slice(0, headingEnd)}\n\n## [${version}] - ${date}${changelog.slice(headingEnd)}`;
+  const link = UNRELEASED_LINK.exec(changelog);
+  if (!link) throw new Error("CHANGELOG.md has no [unreleased]: link reference");
 
-  const previous = /\/compare\/(v[^/]+?)\.\.\.HEAD$/.exec(
-    UNRELEASED_LINK.exec(out)?.[1]?.trim() ?? "",
-  )?.[1];
+  // Before the first release, the unreleased link points at the commits, not at a compare.
+  const previous = /\/compare\/(v.+?)\.\.\.HEAD$/.exec(link[1]!.trim())?.[1];
   const versionLink = previous
     ? `[${version}]: ${repoUrl}/compare/${previous}...v${version}`
     : `[${version}]: ${repoUrl}/releases/tag/v${version}`;
   const unreleasedLink = `[unreleased]: ${repoUrl}/compare/v${version}...HEAD`;
-  out = UNRELEASED_LINK.test(out)
-    ? out.replace(UNRELEASED_LINK, `${unreleasedLink}\n${versionLink}`)
-    : `${out.trimEnd()}\n\n${unreleasedLink}\n${versionLink}\n`;
-  return out;
+  return `${changelog.slice(0, headingEnd)}\n\n## [${version}] - ${date}${changelog.slice(headingEnd)}`.replace(
+    UNRELEASED_LINK,
+    `${unreleasedLink}\n${versionLink}`,
+  );
 }
 
 /** The body of the dated `version` section, refused when missing, undated or empty. */
@@ -108,11 +102,17 @@ if (import.meta.main) {
       throw new Error("usage: bun scripts/release.ts <prepare|notes> X.Y.Z");
     }
     const changelog = readFileSync("CHANGELOG.md", "utf8");
+    const raw = readFileSync("package.json", "utf8");
+    const pkg = JSON.parse(raw) as { version: string; repository?: { url?: string } };
     if (command === "notes") {
+      // The release job publishes package.json as is: the notes must describe that version.
+      if (pkg.version !== version) {
+        throw new Error(
+          `package.json is ${pkg.version}, not ${version}: merge the release pull request first`,
+        );
+      }
       console.log(releaseNotes(changelog, version));
     } else {
-      const raw = readFileSync("package.json", "utf8");
-      const pkg = JSON.parse(raw) as { version: string; repository?: { url?: string } };
       assertReleasable(version, pkg.version);
       const date = new Date().toISOString().slice(0, 10);
       writeFileSync("CHANGELOG.md", prepareChangelog(changelog, version, date, repoUrl(pkg)));

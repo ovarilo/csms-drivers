@@ -216,17 +216,14 @@ const patching =
   ({ strict }: Reference): Partial<CsmsChargePointAdmin> => ({
     update: (cpId, patch) => strict.update(cpId, rewrite(patch)),
   });
-/** A flaw that applies the call anyway after refusing it. */
-const appliesAnyway =
-  <A extends unknown[]>(
-    strict: (...args: A) => Promise<void>,
-    lax: (...args: A) => Promise<void>,
-  ) =>
-  async (...args: A): Promise<void> => {
+/** A flaw whose `create` stores the definition anyway after refusing it. */
+const createAnyway =
+  ({ strict, lax }: Reference) =>
+  async (definition: ChargePointDefinition): Promise<void> => {
     try {
-      await strict(...args);
+      await strict.create(definition);
     } catch (error) {
-      await lax(...args);
+      await lax.create(definition);
       throw error;
     }
   };
@@ -397,14 +394,9 @@ const FLAWS: Readonly<Record<string, FlawCase>> = {
   "omitted-security-refused-but-stored": {
     refusedFor: RULE.refusedDefaultStoresNothing,
     declares: [1],
-    admin: ({ strict, lax }) => ({
+    admin: (ref) => ({
       create: (definition) =>
-        definition.security
-          ? strict.create(definition)
-          : appliesAnyway(
-              (d: ChargePointDefinition) => strict.create(d),
-              (d: ChargePointDefinition) => lax.create(d),
-            )(definition),
+        definition.security ? ref.strict.create(definition) : createAnyway(ref)(definition),
     }),
   },
   "update-ignores-registration": {
@@ -486,12 +478,7 @@ const FLAWS: Readonly<Record<string, FlawCase>> = {
   },
   "refused-create-stores": {
     refusedFor: RULE.refusedCreateStoresNothing,
-    admin: ({ strict, lax }) => ({
-      create: appliesAnyway(
-        (d: ChargePointDefinition) => strict.create(d),
-        (d: ChargePointDefinition) => lax.create(d),
-      ),
-    }),
+    admin: (ref) => ({ create: createAnyway(ref) }),
   },
   "update-accepts-undeclared": {
     refusedFor: RULE.updateRefusesUndeclared,

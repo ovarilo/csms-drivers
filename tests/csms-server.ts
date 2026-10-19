@@ -906,10 +906,8 @@ await expectError(
     !ex.text.includes("env-secret-42"),
     `a configured secret is redacted from the response: ${ex.text}`,
   );
-  check(
-    !ex.log.join("\n").includes("refused"),
-    `the log line carries no error message: ${ex.log.join("\n")}`,
-  );
+  const log = ex.log.join("\n");
+  check(!log.includes("refused"), `the log line carries no error message: ${log}`);
 }
 {
   const ex = await exchange(

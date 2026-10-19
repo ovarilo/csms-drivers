@@ -8,8 +8,9 @@
  *    fresh, empty `## [Unreleased]`, and rewrites the link references: the
  *    unreleased link compares from vX.Y.Z, and X.Y.Z links to its own diff (or
  *    to its tag when it is the first release).
- * 2. Preparing refuses an empty Unreleased section, a version that already has
- *    a section, a malformed version and a version lower than package.json's.
+ * 2. Preparing refuses an empty Unreleased section or a missing [unreleased]
+ *    link, a version that already has a section, a malformed version and a
+ *    version lower than package.json's (prerelease identifiers included).
  * 3. The release notes are exactly the body of the dated X.Y.Z section; a
  *    missing, undated or empty section is refused rather than released empty.
  */
@@ -126,6 +127,16 @@ refuses(
   () => prepareChangelog(`${HEADER}\n- no section\n`, "0.1.0", "2026-11-02", REPO),
   /Unreleased/,
   "a changelog without Unreleased is refused",
+);
+refuses(
+  () => prepareChangelog(FIRST.replace(/^\[unreleased\]:.*\n/m, ""), "0.1.0", "2026-11-02", REPO),
+  /\[unreleased\]/,
+  "a changelog without the [unreleased] link is refused",
+);
+refuses(
+  () => assertReleasable("0.2.0-rc.1", "0.2.0-rc.2"),
+  /lower/,
+  "prerelease identifiers are compared too",
 );
 refuses(
   () => assertReleasable("0.2", "0.1.0"),

@@ -158,7 +158,7 @@ in any language. See [`src/server/README.md`](src/server/README.md).
 ```sh
 bun install
 bunx vp config --no-agent  # once: installs the pre-commit and commit-msg hooks
-bun run check         # format, lint, type-check and test: what CI runs
+bun run check         # format, lint, type-check, test, package content: what CI runs
 bun run format        # rewrite with Oxfmt (Vite+)
 bun run build:types   # regenerate types/ after an API change, and commit it
 ```
