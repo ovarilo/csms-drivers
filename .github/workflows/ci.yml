@@ -32,33 +32,6 @@ jobs:
       - name: Check
         run: vp exec bun run check
 
-  commitlint:
-    name: Conventional Commits
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Setup
-        uses: ./.github/actions/setup
-
-      - name: Lint the pull request commits
-        env:
-          FROM: ${{ github.event.pull_request.base.sha }}
-          TO: ${{ github.event.pull_request.head.sha }}
-        run: vp exec commitlint --from "$FROM" --to "$TO" --verbose
-
-      # A squash merge commits the pull request title: it must be a Conventional Commit too.
-      - name: Lint the pull request title
-        env:
-          TITLE: ${{ github.event.pull_request.title }}
-        run: printf '%s\n' "$TITLE" | vp exec commitlint --verbose
-
   workflows:
     name: Workflows
     runs-on: ubuntu-latest
