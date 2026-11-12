@@ -19,7 +19,7 @@ import {
 import type { CsmsConnectorApi, CsmsDriver, CsmsSessionApi } from "../models.ts";
 import { EvslApi } from "./api-client.ts";
 import { DEFAULT_EVSL_DISPATCH_TIMEOUT_MS, type EvslConfig } from "./config.ts";
-import { dispatch, toCommand, type EvslRefs } from "./requests.ts";
+import { dispatch, pollCommand, submitCommand, toCommand, type EvslRefs } from "./requests.ts";
 
 export interface CodeticsEvServerLiteCsmsDriverOptions {
   readonly config: EvslConfig;
@@ -36,6 +36,9 @@ export interface CodeticsEvServerLiteCsmsDriverOptions {
  */
 export const CODETICS_EV_SERVER_LITE_CAPABILITIES: CsmsCapabilities = {
   operations16: new Set(CSMS_OPERATION_16_ACTIONS),
+  // submit16 follows the command to the station's answer, and poll reads the
+  // command's state again by its id.
+  commands: { completion: "confirmed", polling: true },
 };
 
 /** Creates the reusable Codetics ev-server-lite operation surface, without TCK
@@ -54,6 +57,11 @@ export function createCodeticsEvServerLiteCsmsDriver(
       async execute(cpId: string, operation: CsmsOperation16): Promise<string> {
         return dispatch(api, cpId, toCommand(operation, refs), timeoutMs);
       },
+    },
+    commands: {
+      submit16: async (cpId, operation, opts) =>
+        submitCommand(api, cpId, toCommand(operation, refs), timeoutMs, opts?.signal),
+      poll: (ref) => pollCommand(api, ref),
     },
   };
 }

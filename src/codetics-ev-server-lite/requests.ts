@@ -59,9 +59,10 @@ import {
   CsmsNotDispatchedError,
   UnsupportedOperationError,
   type ChargingProfileRef,
+  type CommandOutcome,
   type CsmsOperation16,
 } from "../contracts.ts";
-import { reason } from "../shared/http.ts";
+import { preview, reason } from "../shared/http.ts";
 import type { EvslApi } from "./api-client.ts";
 
 /** OCPP 1.6 ChargingProfile, spelled as the wire spells it. */
@@ -91,7 +92,7 @@ export interface Command {
 }
 
 /** A row of `GET /api/v1/commands` (CommandResponse, snake_case). */
-interface CommandRow {
+export interface CommandRow {
   id: string;
   station_id: string;
   action: string;
@@ -317,6 +318,40 @@ export const GET_CONFIGURATION_KEYS_UNSUPPORTED =
   "GetConfiguration.req's `key` is an array, so a key list is refused with 400 " +
   "and never queued; only the every-key request is expressible";
 
+/** POSTs one command and returns its id. A refusal of the POST throws as
+ *  {@link EvslApi.request} does; an answer without an id is a plain `Error`. */
+async function queue(api: EvslApi, cpId: string, command: Command): Promise<string> {
+  const path = `/api/v1/stations/${encodeURIComponent(cpId)}/commands`;
+  const receipt = (await api.request("POST", path, command)) as { id?: unknown } | null;
+  if (typeof receipt?.id !== "string") {
+    throw new Error(
+      `codetics-ev-server-lite: POST ${path} answered without a command id: ${JSON.stringify(receipt)}`,
+    );
+  }
+  return receipt.id;
+}
+
+/** One read of the command list: the row of `id`, or why none could be read.
+ *  The tenant's last 100 commands, newest first: a command queued a moment ago
+ *  is near the top, and one that scrolled out is reported as unseen. */
+async function readRow(
+  api: EvslApi,
+  id: string,
+): Promise<{ row?: CommandRow; readFailure?: string }> {
+  try {
+    const rows = await api.request("GET", "/api/v1/commands");
+    if (Array.isArray(rows)) {
+      const row = (rows as (CommandRow | null)[]).find((r) => r?.id === id) ?? undefined;
+      return row ? { row } : {};
+    }
+    return {
+      readFailure: `GET /api/v1/commands answered something that is not a list: ${JSON.stringify(rows).slice(0, 200)}`,
+    };
+  } catch (err) {
+    return { readFailure: reason(err) };
+  }
+}
+
 /**
  * Queues one command and waits for the dispatcher to take it. Returns the
  * command row, serialised, as the receipt.
@@ -327,34 +362,14 @@ export async function dispatch(
   command: Command,
   timeoutMs: number,
 ): Promise<string> {
-  const path = `/api/v1/stations/${encodeURIComponent(cpId)}/commands`;
-  const receipt = (await api.request("POST", path, command)) as { id?: unknown } | null;
-  if (typeof receipt?.id !== "string") {
-    throw new Error(
-      `codetics-ev-server-lite: POST ${path} answered without a command id: ${JSON.stringify(receipt)}`,
-    );
-  }
-  const id = receipt.id;
+  const id = await queue(api, cpId, command);
   const what = `codetics-ev-server-lite: ${command.action} for ${cpId} (command ${id})`;
 
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    // The tenant's last 100 commands, newest first: a command queued a moment
-    // ago is near the top, and one that scrolled out is reported as unseen.
     // A read that fails is retried until the deadline: see the header for why
     // it is never a non-dispatch.
-    let row: CommandRow | undefined;
-    let readFailure: string | undefined;
-    try {
-      const rows = await api.request("GET", "/api/v1/commands");
-      if (Array.isArray(rows)) {
-        row = (rows as (CommandRow | null)[]).find((r) => r?.id === id) ?? undefined;
-      } else {
-        readFailure = `GET /api/v1/commands answered something that is not a list: ${JSON.stringify(rows).slice(0, 200)}`;
-      }
-    } catch (err) {
-      readFailure = reason(err);
-    }
+    const { row, readFailure } = await readRow(api, id);
     if (row) {
       switch (row.state) {
         case "SENT":
@@ -403,6 +418,184 @@ export async function dispatch(
         what,
         `still QUEUED after ${timeoutMs} ms -- is the station connected?${abandoned}`,
       );
+    }
+    await sleep(POLL_INTERVAL_MS);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Command outcomes
+// ---------------------------------------------------------------------------
+
+/** CALLRESULT statuses that are the station refusing the command. */
+const REFUSING_STATUSES: readonly string[] = ["Rejected", "NotSupported"];
+
+function now(): string {
+  return new Date().toISOString();
+}
+
+/**
+ * The outcome one command row stands for -- the state table of the header, as
+ * values. `ref` is the command id.
+ *
+ *   QUEUED, SENT        accepted: queued or written, the answer is not known
+ *   SUCCEEDED           confirmed, or rejected when the station's CALLRESULT
+ *                       status is Rejected/NotSupported
+ *   FAILED + result     failed: the station answered a CALLERROR
+ *   FAILED, no result   failed: the socket write threw, nothing was sent
+ *   TIMED_OUT           unknown (timeout): the server's deadline passed, and
+ *                       the station may still have acted
+ *   CANCELLED           rejected: withdrawn while QUEUED, never sent
+ *   anything else       unknown (no-evidence)
+ */
+export function outcomeOfRow(row: CommandRow): CommandOutcome {
+  const at = now();
+  const ref = row.id;
+  switch (row.state) {
+    case "QUEUED":
+    case "SENT":
+      return { state: "accepted", at, ref };
+    case "SUCCEEDED": {
+      const status = (row.result as { status?: unknown } | null | undefined)?.status;
+      if (typeof status === "string" && REFUSING_STATUSES.includes(status)) {
+        return { state: "rejected", at, detail: `the station answered ${status}` };
+      }
+      return { state: "confirmed", at, ref, response: row.result ?? undefined };
+    }
+    case "FAILED":
+      return {
+        state: "failed",
+        at,
+        ref,
+        detail:
+          row.result === null || row.result === undefined
+            ? "the server could not write the CALL to the station's socket"
+            : preview(JSON.stringify(row.result)),
+      };
+    case "TIMED_OUT":
+      return {
+        state: "unknown",
+        at,
+        ref,
+        cause: "timeout",
+        detail: "the server's deadline passed with no answer from the station",
+      };
+    case "CANCELLED":
+      return { state: "rejected", at, detail: "withdrawn while still QUEUED" };
+    default:
+      return {
+        state: "unknown",
+        at,
+        ref,
+        cause: "no-evidence",
+        detail: `unknown command state ${JSON.stringify(row.state)}`,
+      };
+  }
+}
+
+/** The current outcome of an earlier command, `null` when the list does not
+ *  show it. A read that fails is a plain `Error`: no verdict can be given. */
+export async function pollCommand(api: EvslApi, ref: string): Promise<CommandOutcome | null> {
+  const { row, readFailure } = await readRow(api, ref);
+  if (readFailure !== undefined) {
+    throw new Error(`codetics-ev-server-lite: command ${ref} could not be read: ${readFailure}`);
+  }
+  return row ? outcomeOfRow(row) : null;
+}
+
+/**
+ * Queues one command and follows it until the station answers, the wait ends
+ * or `signal` aborts, reporting the state reached as a value.
+ *
+ * What was never sent still throws as {@link dispatch} does, because nothing
+ * happened that an outcome could describe: a refused POST, FAILED with no
+ * result, CANCELLED, or TIMED_OUT with no SENT observed. What happens after the
+ * CALL left is never thrown and a timeout is never `failed`: SENT at the
+ * deadline is `unknown` (`timeout`). A command still QUEUED at the deadline is
+ * `accepted`, since it stays queued server-side and `ref` lets a caller poll
+ * it. A state that cannot be read is `unknown` (`no-evidence`), also with `ref`.
+ */
+export async function submitCommand(
+  api: EvslApi,
+  cpId: string,
+  command: Command,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<CommandOutcome> {
+  signal?.throwIfAborted();
+  const id = await queue(api, cpId, command);
+  const what = `codetics-ev-server-lite: ${command.action} for ${cpId} (command ${id})`;
+  const deadline = Date.now() + timeoutMs;
+  let sawSent = false;
+  let last: CommandRow | undefined;
+  let readFailure: string | undefined;
+  for (;;) {
+    const read = await readRow(api, id);
+    readFailure = read.readFailure;
+    const row = read.row;
+    if (row) {
+      last = row;
+      if (row.state === "SENT") sawSent = true;
+      switch (row.state) {
+        case "SUCCEEDED":
+        case "FAILED":
+        case "TIMED_OUT":
+        case "CANCELLED":
+          if (row.state === "FAILED" && (row.result === null || row.result === undefined)) {
+            throw new CsmsNotDispatchedError(
+              what,
+              "FAILED with no result: the server could not write the CALL to the station's socket",
+            );
+          }
+          if (row.state === "CANCELLED") {
+            throw new CsmsNotDispatchedError(what, "CANCELLED while still QUEUED");
+          }
+          if (row.state === "TIMED_OUT" && !sawSent) {
+            throw new CsmsNotDispatchedError(
+              what,
+              "TIMED_OUT with no SENT observed: nothing shows the CALL was written",
+            );
+          }
+          return outcomeOfRow(row);
+        case "QUEUED":
+        case "SENT":
+          break;
+        default:
+          return outcomeOfRow(row);
+      }
+    }
+    if (signal?.aborted) {
+      return {
+        state: "unknown",
+        at: now(),
+        ref: id,
+        cause: "no-evidence",
+        detail: "the wait was aborted after the command was queued",
+      };
+    }
+    if (Date.now() >= deadline) {
+      if (last === undefined || readFailure !== undefined) {
+        return {
+          state: "unknown",
+          at: now(),
+          ref: id,
+          cause: "no-evidence",
+          detail:
+            readFailure === undefined
+              ? "accepted, but not among the last 100 commands"
+              : `accepted, but its state could not be read: ${preview(readFailure)}`,
+        };
+      }
+      if (last.state === "SENT") {
+        return {
+          state: "unknown",
+          at: now(),
+          ref: id,
+          cause: "timeout",
+          detail: `the station did not answer within ${timeoutMs} ms`,
+        };
+      }
+      return outcomeOfRow(last);
     }
     await sleep(POLL_INTERVAL_MS);
   }
