@@ -8,6 +8,11 @@
  *    a missing one is reported by its path and the export that points at it.
  * 2. Development files (tests, scripts, examples, CI, hooks) are reported.
  * 3. An export pattern (`*`) is refused rather than silently left unchecked.
+ * 4. A conditional export names ONE module three ways: `bun` the source
+ *    `./src/<m>.ts`, `types` its `./dist/<m>.d.ts`, `default` its
+ *    `./dist/<m>.js`. A subpath whose conditions disagree, or lack one, would
+ *    hand Bun, TypeScript and Node three different modules, and every one of
+ *    them is packed, so (1) cannot see it.
  */
 
 import { packageProblems } from "../scripts/check-package.ts";
@@ -96,6 +101,46 @@ const complete = [
   check(
     problems.length === 1 && problems[0]!.includes("pattern"),
     `an export pattern is refused, got: ${problems.join("; ")}`,
+  );
+}
+
+// 4. One module per conditional export.
+{
+  const problems = packageProblems(
+    {
+      exports: {
+        ...exportsMap,
+        "./steve/forms": {
+          bun: "./src/steve/forms.ts",
+          types: "./dist/steve/forms.d.ts",
+          default: "./dist/steve/html-form.js",
+        },
+      },
+    },
+    [...complete, "src/steve/forms.ts", "dist/steve/forms.d.ts", "dist/steve/html-form.js"],
+  );
+  check(
+    problems.length === 1 &&
+      problems[0]!.includes('"./steve/forms"') &&
+      problems[0]!.includes("dist/steve/html-form.js"),
+    `a conditional export naming two modules is reported, got: ${problems.join("; ")}`,
+  );
+}
+{
+  const problems = packageProblems(
+    {
+      exports: {
+        ...exportsMap,
+        "./citrineos/http": { bun: "./src/citrineos/http.ts", default: "./dist/citrineos/http.js" },
+      },
+    },
+    [...complete, "src/citrineos/http.ts", "dist/citrineos/http.js"],
+  );
+  check(
+    problems.length === 1 &&
+      problems[0]!.includes('"./citrineos/http"') &&
+      problems[0]!.includes("types"),
+    `a conditional export missing a condition is reported, got: ${problems.join("; ")}`,
   );
 }
 

@@ -43,6 +43,51 @@
       "types": "./dist/server/index.d.ts",
       "default": "./dist/server/index.js"
     },
+    "./steve/api-client": {
+      "bun": "./src/steve/api-client.ts",
+      "types": "./dist/steve/api-client.d.ts",
+      "default": "./dist/steve/api-client.js"
+    },
+    "./steve/ui-client": {
+      "bun": "./src/steve/ui-client.ts",
+      "types": "./dist/steve/ui-client.d.ts",
+      "default": "./dist/steve/ui-client.js"
+    },
+    "./steve/forms": {
+      "bun": "./src/steve/forms.ts",
+      "types": "./dist/steve/forms.d.ts",
+      "default": "./dist/steve/forms.js"
+    },
+    "./steve/charge-points": {
+      "bun": "./src/steve/charge-points.ts",
+      "types": "./dist/steve/charge-points.d.ts",
+      "default": "./dist/steve/charge-points.js"
+    },
+    "./citrineos/api-client": {
+      "bun": "./src/citrineos/api-client.ts",
+      "types": "./dist/citrineos/api-client.d.ts",
+      "default": "./dist/citrineos/api-client.js"
+    },
+    "./citrineos/config": {
+      "bun": "./src/citrineos/config.ts",
+      "types": "./dist/citrineos/config.d.ts",
+      "default": "./dist/citrineos/config.js"
+    },
+    "./citrineos/http": {
+      "bun": "./src/citrineos/http.ts",
+      "types": "./dist/citrineos/http.d.ts",
+      "default": "./dist/citrineos/http.js"
+    },
+    "./citrineos/requests": {
+      "bun": "./src/citrineos/requests.ts",
+      "types": "./dist/citrineos/requests.d.ts",
+      "default": "./dist/citrineos/requests.js"
+    },
+    "./citrineos/variant": {
+      "bun": "./src/citrineos/variant.ts",
+      "types": "./dist/citrineos/variant.d.ts",
+      "default": "./dist/citrineos/variant.js"
+    },
     "./tsconfig": "./tsconfig.base.json",
     "./package.json": "./package.json"
   },

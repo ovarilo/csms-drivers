@@ -90,6 +90,36 @@ EOF
 (cd "$work/app" && "${node26[@]}" consumer.mjs)
 (cd "$work/app" && bun consumer.mjs)
 
+# Every code export of package.json, read from the INSTALLED copy rather than
+# listed here: each one must load on Node and Bun (a type-only module such as
+# citrineos/config loads as an empty namespace), and its declarations must
+# type-check below. check-package.ts proves its targets are packed; this
+# proves they resolve.
+"${node26[@]}" -e '
+  const { exports } = require(process.argv[1]);
+  const subpaths = Object.entries(exports)
+    .filter(([, value]) => typeof value === "object")
+    .map(([key]) => "@ovarilo/csms-drivers" + key.slice(1));
+  require("node:fs").writeFileSync(process.argv[2], JSON.stringify(subpaths));
+' "$work/app/node_modules/@ovarilo/csms-drivers/package.json" "$work/app/subpaths.json"
+cat >"$work/app/subpaths.mjs" <<'EOF'
+import { readFileSync } from "node:fs";
+
+const subpaths = JSON.parse(readFileSync(new URL("./subpaths.json", import.meta.url), "utf8"));
+if (subpaths.length < 2) throw new Error(`subpaths: only ${subpaths.length} read from package.json`);
+for (const subpath of subpaths) {
+  await import(subpath);
+}
+console.log(`${process.versions.bun ? `Bun ${process.versions.bun}` : `Node ${process.version}`}: ${subpaths.length} subpaths load from the installed package.`);
+EOF
+(cd "$work/app" && "${node26[@]}" subpaths.mjs)
+(cd "$work/app" && bun subpaths.mjs)
+"${node26[@]}" -e '
+  const subpaths = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+  const lines = subpaths.map((subpath, i) => `export * as m${i} from "${subpath}";`);
+  require("node:fs").writeFileSync(process.argv[2], lines.join("\n") + "\n");
+' "$work/app/subpaths.json" "$work/app/subpaths.ts"
+
 # The declarations, as a strict Node-resolution TypeScript consumer sees them.
 cat >"$work/app/consumer.ts" <<'EOF'
 import { createSteveCsmsDriver, type CsmsDriver, type FetchLike } from "@ovarilo/csms-drivers";
@@ -115,7 +145,7 @@ cat >"$work/app/tsconfig.json" <<'EOF'
     "noEmit": true,
     "types": []
   },
-  "files": ["consumer.ts"]
+  "files": ["consumer.ts", "subpaths.ts"]
 }
 EOF
 if ! "$repo_root/node_modules/.bin/tsc" -p "$work/app/tsconfig.json"; then
@@ -123,4 +153,4 @@ if ! "$repo_root/node_modules/.bin/tsc" -p "$work/app/tsconfig.json"; then
   exit 1
 fi
 
-echo "Package: installs without devDependencies; the driver and the server run on Node 26 and Bun; declarations resolve under nodenext."
+echo "Package: installs without devDependencies; the driver and the server run on Node 26 and Bun; every subpath loads on both; declarations resolve under nodenext."

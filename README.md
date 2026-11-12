@@ -50,6 +50,12 @@ is a base configuration that sets `bundler`:
 |---|---|
 | `@ovarilo/csms-drivers` | contracts, errors, charge-point model, `createSteveCsmsDriver`, `createCitrineOsCsmsDriver`, `createCodeticsEvServerLiteCsmsDriver` |
 | `@ovarilo/csms-drivers/server` | `createCsmsHttpHandler` and the HTTP route table |
+| `@ovarilo/csms-drivers/steve/{api-client,ui-client,forms,charge-points}` | the SteVe driver's building blocks: WebAPI and manager-UI clients, form encoding, charge-point administration |
+| `@ovarilo/csms-drivers/citrineos/{api-client,config,http,requests,variant}` | the CitrineOS driver's building blocks: message-API client, configuration, response reading, request mapping, `v1`/`v2` routing |
+
+The building-block subpaths exist for adapters that compose a driver of
+their own from these parts, as `juherr/open-ocpp-tck` does. Each is listed
+explicitly in `package.json#exports`; a module not listed there is internal.
 
 ## Usage
 
