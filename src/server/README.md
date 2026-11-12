@@ -284,7 +284,7 @@ instead of `operations16.execute`.
 | `outcome.state` | meaning | fields |
 |---|---|---|
 | `unsupported` | The CSMS cannot express the command. Nothing was sent. | `reason` |
-| `rejected` | The CSMS or the station refused it. | `at`, `detail?` |
+| `rejected` | The CSMS or the station refused it (including a CSMS refusal of the request). | `at`, `detail?` |
 | `accepted` | Dispatched or queued. The station's answer is **not** known. | `at`, `ref?` |
 | `confirmed` | The station's `CALLRESULT` was observed. | `at`, `ref?`, `response?` |
 | `failed` | A `CALLERROR`, or the command failed after dispatch. | `at`, `ref?`, `detail?` |
@@ -293,10 +293,14 @@ instead of `operations16.execute`.
 `at` is an ISO 8601 instant. `detail` and `response` are redacted of the
 server's `secrets`, at any depth, like every other message it returns.
 
-Only the `202` carries an `outcome`. Every error keeps its status and code
-(`502`, `501`, `504`...) and has none, and a driver-side verdict such as
-`rejected` is still a `202`: an `unsupported` or `rejected` outcome does not
-change the status line.
+One rule: a verdict (`unsupported`, `rejected`, `failed`, `unknown`) is
+returned by `submit` as a value, so it is a `202` with an `outcome`; it does not
+change the status line. `submit` throws only when no verdict can be given (an
+environment or transport fault before any answer, a plain `Error`), and that
+is an error response with no `outcome` (`502`, `504`...). A driver that still
+throws `UnsupportedOperationError` or `CsmsNotDispatchedError` from `submit`
+is a legacy path: the handler maps it as for `execute` (`501`, `502`), with no
+`outcome`. Those two classes are `execute` semantics, not the `submit` contract.
 
 ```http
 GET /v1/commands/cmd-1
@@ -364,12 +368,12 @@ may change.
 | status | `code` | meaning |
 |---|---|---|
 | 400 | `invalid_input` | The body is not valid JSON, or does not match the model. The driver was not called. |
-| 404 | `not_found` | No such route or operation path, or no such charge point. |
+| 404 | `not_found` | No such route or operation path, no such charge point, or no such command `ref`. |
 | 403 | `forbidden_origin` | The request carries an `Origin` header, so it comes from a browser page. See [Browsers cannot call it](#browsers-cannot-call-it). The driver was not called. |
 | 405 | `method_not_allowed` | The route exists but does not serve this method. The `allow` header names the methods it does serve. |
 | 415 | `unsupported_media_type` | A `POST` or `PATCH` without `Content-Type: application/json`. The driver was not called. |
 | 409 | `conflict` | `create` of an id that already exists. Nothing was changed. |
-| 501 | `unsupported_capability` | The driver does not declare the operation, has no charge-point administration, does not accept the security profile, or refused the request as something it cannot express. |
+| 501 | `unsupported_capability` | The driver does not declare the operation, has no charge-point administration, does not accept the security profile, does not poll command outcomes (`GET /v1/commands/{ref}`), or refused the request as something it cannot express. |
 | 502 | `transport_failure` | The request never reached the CSMS as an operation: the connection failed, the CSMS refused the driver's credentials, or it refused the request before dispatching it. The driver contract has no separate class for an authentication failure, so this code covers it. |
 | 502 | `csms_rejected` | The CSMS answered, but did not do what was asked, for example a form that came back with validation errors. |
 | 504 | `timeout` | The driver call did not finish within `--timeout-ms`. **The outcome is unknown**: the request may still have been dispatched. It carries no `outcome`, and is never to be read as a failure. |
