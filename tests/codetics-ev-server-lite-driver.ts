@@ -16,7 +16,7 @@
  * session is cached per process, and a cached FAILURE is the dangerous half --
  * every later caller inherits it.
  *
- * PROPERTY, in 8 parts:
+ * PROPERTY, in 11 parts:
  *  1. The command states, both directions. SENT, SUCCEEDED and FAILED with a
  *     result are dispatched and resolve. FAILED with no result, TIMED_OUT,
  *     CANCELLED and QUEUED past the wait are `CsmsNotDispatchedError`. A state
@@ -54,9 +54,13 @@
  *     renewed.
  * 10. A kept signin refusal expires with the server's fifteen-minute window,
  *     so a long-lived process recovers without a restart.
+ * 11. The cached session belongs to one password. A driver with another
+ *     password on the same server and account signs in itself rather than
+ *     borrowing the session, and a refusal kept for a wrong password does not
+ *     block a corrected one. The refusal never quotes the password.
  *
  * Each row gets its own server URL because the session cache is module-level
- * and keyed by server and account: a shared key would let one row's cached
+ * and keyed by server, account and password: a shared key would let one row's cached
  * refusal decide the next row's verdict.
  *
  * Offline: answers every request from a closure. Opens no socket.
@@ -810,6 +814,59 @@ const SIGNIN_VALID: Handler = () => json({ token: "bearer-1", expires_at: "2999-
   } finally {
     Date.now = realNow;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Part 11: the cached session belongs to one password
+// ---------------------------------------------------------------------------
+
+function driverWithPassword(url: string, srv: Server, password: string): CsmsDriver {
+  return createCodeticsEvServerLiteCsmsDriver({
+    config: { apiUrl: url, tenant: "codetics", email: "admin@example.com", password },
+    fetch: srv.fetch,
+  });
+}
+
+{
+  const what = "part 11: a second password after a successful login";
+  const url = freshUrl();
+  const srv = server({});
+  const right = await outcomeOf(
+    driverWithPassword(url, srv, "the-right-password").operations16.execute("CP1", RESET),
+  );
+  await outcomeOf(
+    driverWithPassword(url, srv, "a-wrong-password").operations16.execute("CP1", RESET),
+  );
+  const signins = srv.sent.filter((s) => s.path === "/api/v1/auth/app/signin");
+  check(
+    right.ok && signins.length === 2,
+    `${what}: expected the second password to sign in itself, got ${signins.length} signins`,
+  );
+  check(
+    signins[1]?.body?.includes("a-wrong-password") === true,
+    `${what}: expected the second signin to carry the second password`,
+  );
+}
+
+{
+  const what = "part 11: a refusal kept for one password, then a corrected one";
+  const url = freshUrl();
+  const srv = server({ signin: [() => json({}, 401), SIGNIN_OK] });
+  const wrong = await outcomeOf(
+    driverWithPassword(url, srv, "a-wrong-password").operations16.execute("CP1", RESET),
+  );
+  const corrected = await outcomeOf(
+    driverWithPassword(url, srv, "the-right-password").operations16.execute("CP1", RESET),
+  );
+  check(
+    !wrong.ok && corrected.ok && srv.count.signin === 2,
+    `${what}: expected the corrected password to sign in, got ${srv.count.signin} signins` +
+      (corrected.ok ? "" : `: ${message(corrected.err)}`),
+  );
+  check(
+    !wrong.ok && !message(wrong.err).includes("a-wrong-password"),
+    `${what}: the refusal message quotes the password: ${message(wrong.err)}`,
+  );
 }
 
 if (failures.length > 0) {

@@ -22,6 +22,12 @@
  * session is cached at module level, keyed by server and account, and shared
  * by every client in the process, in-flight attempt included.
  *
+ * THE KEY IS BOUND TO THE CREDENTIAL. It also carries a SHA-256 digest of the
+ * password -- never the password itself -- so a client configured with a
+ * wrong password does not borrow a session another client's right one
+ * opened, and a refusal kept for one password does not block a corrected
+ * one.
+ *
  * ONLY A REFUSED SIGNIN IS CACHED. The counter is incremented by
  * `POST /api/v1/auth/app/signin` alone, and it counts before anything else in
  * login can fail. A signin answered 401 (bad credentials) or 429 (the limit)
@@ -53,6 +59,7 @@
  * went on the wire. A 2xx whose body cannot be read is a plain `Error`: the
  * request was answered, and whether it took effect is exactly what is unknown.
  */
+import { createHash } from "node:crypto";
 import { CsmsNotDispatchedError, type FetchLike } from "../contracts.ts";
 import {
   errorBody,
@@ -84,7 +91,8 @@ function renewableAt(expiresAt: unknown): number {
   return Number.isFinite(expiry) ? expiry - EXPIRY_SKEW_MS : Date.now() + RENEW_WITHOUT_EXPIRY_MS;
 }
 
-/** Keyed by server and account. See the header for why it is process-wide. */
+/** Keyed by server, account and password digest. See the header for why it is
+ *  process-wide. */
 const sessions = new Map<string, Promise<Session>>();
 
 /** When each kept signin refusal in {@link sessions} was received. */
@@ -152,8 +160,11 @@ export class EvslApi {
     }
   }
 
+  /** Server, account and a digest of the password -- never the password
+   *  itself. See the header. */
   private sessionKey(): string {
-    return `${this.cfg.apiUrl}|${this.cfg.tenant}|${this.cfg.email}`;
+    const digest = createHash("sha256").update(this.cfg.password).digest("hex");
+    return `${this.cfg.apiUrl}|${this.cfg.tenant}|${this.cfg.email}|${digest}`;
   }
 
   /** The cached session, logging in on first use. */
