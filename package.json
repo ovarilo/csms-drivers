@@ -43,6 +43,11 @@
       "types": "./dist/server/index.d.ts",
       "default": "./dist/server/index.js"
     },
+    "./conformance": {
+      "bun": "./src/conformance/index.ts",
+      "types": "./dist/conformance/index.d.ts",
+      "default": "./dist/conformance/index.js"
+    },
     "./steve/api-client": {
       "bun": "./src/steve/api-client.ts",
       "types": "./dist/steve/api-client.d.ts",
