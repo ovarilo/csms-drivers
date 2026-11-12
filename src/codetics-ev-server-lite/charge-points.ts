@@ -23,9 +23,9 @@
  *    reports but which a declaration must state WITHOUT a client, so they come
  *    from the driver's options. Profile 2 is not offered by the server and is
  *    never declared.
- *  - `PUT /stations/{id}` REPLACES the whole record, so `update` reads the
- *    record, changes the member it was asked to change and writes the whole of
- *    it back. That is read-modify-write and not atomic: a change made to the
+ *  - `PUT /stations/{id}` REPLACES the whole record, so an `update` of
+ *    the description reads the record and writes the whole of it back. That is
+ *    read-modify-write and not atomic: a change made to the
  *    same station in between is lost.
  *  - `PUT /stations/{id}/security` applies a profile server-side only with
  *    `sendToStation: false` (otherwise the server wants a connected station).

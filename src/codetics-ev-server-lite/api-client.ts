@@ -299,8 +299,8 @@ export class EvslApi {
   /**
    * Like {@link request}, but a status in `accepted` is an answer rather than
    * a failure: the caller reads it, e.g. a 404 that means "absent". Any other
-   * non-2xx is a plain `Error` -- the admin calls are not OCPP CALLs, so
-   * "never dispatched" has no meaning for them.
+   * non-2xx is a plain `Error`. A request that never reached the server, or a
+   * failed login, is still a `CsmsNotDispatchedError`.
    *
    * `secretBearing` marks a call whose 2xx body carries a generated secret: a
    * body that will not parse is then reported without being quoted.
