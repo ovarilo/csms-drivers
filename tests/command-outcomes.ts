@@ -21,8 +21,13 @@
  *     outcome, 404 `not_found` for an unknown ref, 501 `unsupported_capability`
  *     without polling (declared and implemented, both), 405 for other methods.
  *  5. NOTHING SECRET LEAVES. A configured secret inside `detail`, a station
- *     `response` (at any depth) or a polled outcome is redacted; the log line
- *     carries no outcome.
+ *     `response` (at any depth, keys included), a polled outcome or a polled
+ *     ref is redacted; the log line carries no outcome.
+ *  6. THE OUTCOME IS A WHITELIST. Only a state's documented fields are
+ *     serialised (an extra property -- a receipt, a raw body -- is dropped),
+ *     and an outcome that is not one of the six states is a daemon-side
+ *     500 `internal`, never a 202 without `outcome`. The action gate (501)
+ *     precedes the commands branch.
  */
 
 import {
@@ -60,6 +65,8 @@ interface FakeOptions {
   /** Declares `capabilities.commands`. Default: whatever `surface` is. */
   declare?: boolean;
   polling?: boolean;
+  /** The declared 1.6 actions. Default: all of them. */
+  actions?: readonly (typeof CSMS_OPERATION_16_ACTIONS)[number][];
   /** Implements `poll`. Default: `polling`. */
   implementPoll?: boolean;
   submit?: (cpId: string, op: unknown) => Promise<CommandOutcome>;
@@ -93,7 +100,7 @@ function fakeDriver(options: FakeOptions = {}): { driver: CsmsDriver; seen: Seen
   };
   const driver: CsmsDriver = {
     capabilities: {
-      operations16: new Set(CSMS_OPERATION_16_ACTIONS),
+      operations16: new Set(options.actions ?? CSMS_OPERATION_16_ACTIONS),
       ...(declare ? { commands: { completion: "accepted", polling } } : {}),
     },
     operations16: {
@@ -396,9 +403,100 @@ for (const [name, outcome] of Object.entries(STATES)) {
     `the log redacts a secret in the ref: ${secretPath.log.join("|")}`,
   );
   check(
+    !secretPath.text.includes(SECRET),
+    `the response does not echo a secret ref: ${secretPath.text}`,
+  );
+  check(
     ex.log.every((line) => !line.includes("Accepted") && !line.includes("outcome")),
     `the log carries no outcome: ${ex.log.join("|")}`,
   );
+
+  const keyed = await exchange(
+    "POST",
+    RESET,
+    { type: "Soft" },
+    {
+      submit: async () => ({
+        state: "confirmed",
+        at: AT,
+        response: { [`key-${SECRET}`]: "v", deep: [{ [SECRET]: 1 }] },
+      }),
+    },
+  );
+  check(!keyed.text.includes(SECRET), `a secret used as a key is redacted: ${keyed.text}`);
+  check(
+    keyed.body?.outcome?.response?.["key-[redacted]"] === "v",
+    `a redacted key keeps its value: ${keyed.text}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Part 6 -- the outcome is a whitelist.
+// ---------------------------------------------------------------------------
+
+{
+  for (const [name, outcome] of Object.entries(STATES)) {
+    const ex = await exchange(
+      "POST",
+      RESET,
+      { type: "Hard" },
+      {
+        submit: async () =>
+          ({ ...outcome, receipt: "https://csms/task/9", raw: { a: 1 } }) as never,
+      },
+    );
+    check(
+      ex.status === 202 && JSON.stringify(ex.body?.outcome) === JSON.stringify(outcome),
+      `${name}: an extra property is dropped: ${ex.text}`,
+    );
+    const polled = await exchange("GET", "/v1/commands/cmd-1", undefined, {
+      polling: true,
+      poll: async () => ({ ...outcome, receipt: "x" }) as never,
+    });
+    check(
+      polled.status === 200 && JSON.stringify(polled.body?.outcome) === JSON.stringify(outcome),
+      `${name}: a polled extra property is dropped: ${polled.text}`,
+    );
+  }
+
+  for (const [name, bad] of [
+    ["undefined", undefined],
+    ["null", null],
+    ["a string", "accepted"],
+    ["an unknown state", { state: "pending", at: AT }],
+    ["no state", { at: AT }],
+  ] as const) {
+    const ex = await exchange(
+      "POST",
+      RESET,
+      { type: "Soft" },
+      { submit: async () => bad as never },
+    );
+    check(
+      ex.status === 500 && ex.body?.error?.code === "internal" && !("outcome" in (ex.body ?? {})),
+      `submit returning ${name} is 500 internal, got ${ex.status} ${ex.text}`,
+    );
+  }
+  for (const [name, bad] of [
+    ["undefined", undefined],
+    ["an unknown state", { state: "pending" }],
+  ] as const) {
+    const ex = await exchange("GET", "/v1/commands/cmd-1", undefined, {
+      polling: true,
+      poll: async () => bad as never,
+    });
+    check(
+      ex.status === 500 && ex.body?.error?.code === "internal",
+      `poll returning ${name} is 500 internal, got ${ex.status} ${ex.text}`,
+    );
+  }
+
+  const gated = await exchange("POST", RESET, { type: "Soft" }, { actions: [] });
+  check(
+    gated.status === 501 && gated.body?.error?.code === "unsupported_capability",
+    `an undeclared action is 501 even with commands: ${gated.status} ${gated.text}`,
+  );
+  check(gated.seen.submits.length === 0, "an undeclared action makes no submit");
 }
 
 if (failures.length > 0) {
