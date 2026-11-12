@@ -192,8 +192,11 @@ location: /v1/charge-points/CP-1
 
 - `registration` is `Accepted`, `Pending` or `Rejected`. If omitted, it is
   `Accepted`.
-- `security.profile` is 0 to 3. Profiles 1 and 2 require a non-empty
-  `basicAuthPassword`; profiles 0 and 3 refuse one. If `security` is omitted,
+- `security.profile` is 0 to 3. For profiles 1 and 2, whether
+  `basicAuthPassword` is required depends on `chargePoints.basicAuthPassword`
+  (below); a password that is present must be non-empty, and one absent while
+  the driver is `"supplied"` answers `501 unsupported_capability`, not 400.
+  Profiles 0 and 3 refuse one. If `security` is omitted,
   the profile is 0. A profile the driver does not list in
   `securityProfiles`, including that implicit 0, answers
   `501 unsupported_capability`. So does a `registration` the driver does not

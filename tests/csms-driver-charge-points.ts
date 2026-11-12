@@ -899,6 +899,13 @@ for (const password of ["supplied", "generated"] as const) {
           skipped.includes(RULE.passwordModeBinds) === !hasPassworded,
         `the password and description rules are asked exactly when declared (${password}, ${description}, ${declares.join(",")})`,
       );
+      if (password === "supplied") {
+        check(
+          report.skipped.find((skip) => skip.rule === RULE.generatedPasswordReturned)?.reason ===
+            'passwords are declared "supplied": none is generated',
+          `a supplied-password driver skips generatedPasswordReturned with its own reason (${description}, ${declares.join(",")})`,
+        );
+      }
     }
   }
 }

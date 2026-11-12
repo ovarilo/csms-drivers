@@ -239,6 +239,9 @@ async function exerciseLifecycle(
   // A required description is given everywhere a station is created, so that
   // a refusal can only be for the rule under test; an optional one is left out
   // where the default is what is read back.
+  if (mode === "supplied") {
+    skip(RULE.generatedPasswordReturned, 'passwords are declared "supplied": none is generated');
+  }
   const optionalDescription = descriptionRequired ? { description: "required" } : {};
   const sets = (security: ChargePointSecurity | undefined): boolean =>
     security?.profile === 1 || security?.profile === 2;
