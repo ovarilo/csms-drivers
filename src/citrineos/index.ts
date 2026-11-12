@@ -4,6 +4,7 @@
 import {
   CSMS_OPERATION_16_ACTIONS,
   CSMS_OPERATION_201_ACTIONS,
+  type CommandOutcome,
   type CsmsCapabilities,
   type CsmsOperation16,
   type CsmsOperation201,
@@ -36,31 +37,50 @@ export function citrineOsCapabilities(config: CitrineApiConfig): CsmsCapabilitie
           ),
         }
       : {}),
+    // CitrineOS acknowledges the dispatch, not the station's answer.
+    commands: { completion: "accepted", polling: false },
   };
 }
+
+const accepted = (): CommandOutcome => ({ state: "accepted", at: new Date().toISOString() });
 
 /** Creates the reusable CitrineOS operation surface without TCK lifecycle hooks. */
 export function createCitrineOsCsmsDriver(options: CitrineOsCsmsDriverOptions): CsmsDriver {
   const api = new CitrineMessageApi(options.config, options.fetch);
+  const execute16 = async (cpId: string, operation: CsmsOperation16): Promise<string> => {
+    const request = await toCitrineRequest(operation, options.refs, options.config.variant);
+    return api.send(cpId, request);
+  };
+  const execute201 = async (cpId: string, operation: CsmsOperation201): Promise<string> =>
+    api.send(cpId, toCitrineRequest201(operation, options.config.variant));
   return {
     capabilities: citrineOsCapabilities(options.config),
     ...(options.sessions ? { sessions: options.sessions } : {}),
     ...(options.connectors ? { connectors: options.connectors } : {}),
-    operations16: {
-      async execute(cpId: string, operation: CsmsOperation16): Promise<string> {
-        const request = await toCitrineRequest(operation, options.refs, options.config.variant);
-        return api.send(cpId, request);
+    operations16: { execute: execute16 },
+    ...(speaksOcpp201(options.config.variant) ? { operations201: { execute: execute201 } } : {}),
+    // Accepted-only: what `execute` throws is thrown here too, and `submit201`
+    // exists exactly when `operations201` does.
+    commands: {
+      async submit16(cpId, operation, opts) {
+        opts?.signal?.throwIfAborted();
+        await execute16(cpId, operation);
+        return accepted();
       },
-    },
-    ...(speaksOcpp201(options.config.variant)
-      ? {
-          operations201: {
-            async execute(cpId: string, operation: CsmsOperation201): Promise<string> {
-              return api.send(cpId, toCitrineRequest201(operation, options.config.variant));
+      ...(speaksOcpp201(options.config.variant)
+        ? {
+            async submit201(
+              cpId: string,
+              operation: CsmsOperation201,
+              opts?: { signal?: AbortSignal },
+            ) {
+              opts?.signal?.throwIfAborted();
+              await execute201(cpId, operation);
+              return accepted();
             },
-          },
-        }
-      : {}),
+          }
+        : {}),
+    },
   };
 }
 
