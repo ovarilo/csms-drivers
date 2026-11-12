@@ -38,9 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`completion: "accepted"`, no `poll`): a dispatched command is `accepted`, never `confirmed`,
   and CitrineOS `v1` has no `submit201`. A timeout is `unknown`; what `execute` throws is still
   thrown. The README tabulates what a `2xx` or `CALLRESULT` means per driver, with retry guidance.
-- `CommandWaitInterruptedError` is exported by the EVtivity driver module: a
-  `CsmsNotDispatchedError` for a command wait that was interrupted after the CALL may have left,
-  which `commands.submit16` reports as `unknown`.
+- An EVtivity command wait interrupted after the CALL may have left is still a
+  `CsmsNotDispatchedError` for `execute` (an internal subclass, not exported), and
+  `commands.submit16` reports it as `unknown`.
 - Subpath exports for the drivers' building blocks, for adapters that compose their own driver:
   `@ovarilo/csms-drivers/steve/{api-client,ui-client,forms,charge-points}` and
   `@ovarilo/csms-drivers/citrineos/{api-client,config,http,requests,variant}`.
