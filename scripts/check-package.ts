@@ -20,6 +20,40 @@ function targets(value: unknown, key: string): [string, string][] {
   );
 }
 
+/** The three conditions a code export carries, and the target each derives from the module. */
+const CONDITIONS = {
+  bun: (module: string) => `./src/${module}.ts`,
+  types: (module: string) => `./dist/${module}.d.ts`,
+  default: (module: string) => `./dist/${module}.js`,
+} as const;
+
+/**
+ * A conditional export names one module: `bun` its source, `types` and
+ * `default` what tsc emits from it. Anything else hands Bun, TypeScript and
+ * Node different modules, every one of them packed.
+ */
+function conditionProblems(entry: string, value: unknown): string[] {
+  if (value === null || typeof value !== "object") return [];
+  const conditions = value as Record<string, unknown>;
+  const bun = conditions.bun;
+  const module = typeof bun === "string" ? /^\.\/src\/(.+)\.ts$/.exec(bun)?.[1] : undefined;
+  if (module === undefined) {
+    return [`export "${entry}" has no "bun" condition naming ./src/<module>.ts`];
+  }
+  const problems: string[] = [];
+  for (const [condition, target] of Object.entries(CONDITIONS)) {
+    const expected = target(module);
+    if (!(condition in conditions)) {
+      problems.push(`export "${entry}" lacks the "${condition}" condition (${expected})`);
+    } else if (conditions[condition] !== expected) {
+      problems.push(
+        `export "${entry}" "${condition}" points at ${String(conditions[condition])}, not ${expected}`,
+      );
+    }
+  }
+  return problems;
+}
+
 /** What is wrong with a packed file list for this package.json; empty when nothing is. */
 export function packageProblems(pkg: { exports?: unknown }, packed: readonly string[]): string[] {
   const files = new Set(packed);
@@ -29,6 +63,11 @@ export function packageProblems(pkg: { exports?: unknown }, packed: readonly str
       problems.push(`export "${entry}" is a pattern (${target}): this check cannot verify it`);
     } else if (!files.has(target.replace(/^\.\//, ""))) {
       problems.push(`export "${entry}" points at ${target}, which is not packed`);
+    }
+  }
+  if (pkg.exports !== null && typeof pkg.exports === "object") {
+    for (const [entry, value] of Object.entries(pkg.exports)) {
+      problems.push(...conditionProblems(entry, value));
     }
   }
   for (const file of packed) {

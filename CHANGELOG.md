@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   1.6 operation goes through its REST command endpoint, and `execute()` resolves once the
   command was written to the station. Ported from open-ocpp-tck's
   `drivers/codetics-ev-server-lite`, without its TCK fixtures.
+- Subpath exports for the drivers' building blocks, for adapters that compose their own driver:
+  `@ovarilo/csms-drivers/steve/{api-client,ui-client,forms,charge-points}` and
+  `@ovarilo/csms-drivers/citrineos/{api-client,config,http,requests,variant}`.
 
 ### Fixed
 

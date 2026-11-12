@@ -32,7 +32,7 @@ Tests are plain Bun scripts, not a test runner. Each one collects failures throu
 - **`tsconfig.json` sets `customConditions: ["bun"]`**: tests and examples import the package by name, and type-check against `src/` as Bun runs them, not against a `dist/` that may be missing.
 - **`scripts/package-smoke.sh`**: packs, installs with npm under Node 26 without devDependencies, runs a driver and the server from Node and Bun, and type-checks a `nodenext` consumer.
 - **Vite+ never touches `dist/`**: `vite.config.ts` excludes it from Oxfmt and Oxlint, since it ships as tsc emits it. tsc 5.9 is the only type-check (`typeAware` lint rules, no `typeCheck`). No `prepare`/`prepack` script: the build is an explicit step of `test` and of the release.
-- **`scripts/check-package.ts`**: the `npm pack` listing carries every exports target and no development file.
+- **`scripts/check-package.ts`**: the `npm pack` listing carries every exports target and no development file, and every conditional export names one module three ways (`bun` `./src/<m>.ts`, `types` `./dist/<m>.d.ts`, `default` `./dist/<m>.js`). Subpaths are listed explicitly, never as a `*` pattern; `scripts/package-smoke.sh` imports each one from the installed package.
 - **`scripts/boundary.sh`**:
   - every import under `src/` is relative or `node:*`, never a package;
   - every relative specifier names a `.ts` file, which the build rewrites to `.js`: an extensionless or directory specifier does not resolve on Node;
