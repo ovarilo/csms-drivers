@@ -61,7 +61,8 @@ import {
   type ChargingProfileRef,
   type CsmsOperation16,
 } from "../contracts.ts";
-import { reason, type EvslApi } from "./api-client.ts";
+import { reason } from "../shared/http.ts";
+import type { EvslApi } from "./api-client.ts";
 
 /** OCPP 1.6 ChargingProfile, spelled as the wire spells it. */
 export interface EvslChargingProfile {

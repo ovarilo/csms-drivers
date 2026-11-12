@@ -22,6 +22,7 @@
  */
 import type { SteveUiConfig } from "./ui-client.ts";
 import type { CsmsEnv } from "../contracts.ts";
+import { preview } from "../shared/http.ts";
 
 const HTTP_TIMEOUT_MS = 15_000;
 
@@ -118,7 +119,7 @@ export class SteveWebApi {
       res.status === 401 || res.status === 403
         ? `steve api: ${what} returned ${res.status}. WebAPI access is off until ` +
             `web_user.api_password is set before using the WebAPI.`
-        : `steve api: ${what} returned ${res.status}: ${(await res.text()).slice(0, 300)}`,
+        : `steve api: ${what} returned ${res.status}: ${preview(await res.text())}`,
     );
   }
 

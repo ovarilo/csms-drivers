@@ -49,14 +49,14 @@
  * scenarios that quietly never ran. Issue #80 settles this.
  *
  * The other half is what stays a plain `Error`: a 2xx whose body stalls, one
- * that will not parse, one that is not a confirmation array. `http.ts` owns
+ * that will not parse, one that is not a confirmation array. `shared/http.ts` owns
  * that half for both clients, and {@link CsmsNotDispatchedError} says why it is
  * a half and not an oversight. It is what stops this being a blanket
  * conversion, and it is the half worth a guard.
  */
 import { CsmsNotDispatchedError, type FetchLike } from "../contracts.ts";
 import type { CitrineApiConfig } from "./config.ts";
-import { errorBody, preview, readAnsweredBody } from "./http.ts";
+import { errorBody, preview, readAnsweredBody } from "../shared/http.ts";
 import type { CitrineRequest } from "./requests.ts";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -139,7 +139,7 @@ export class CitrineMessageApi {
       );
     }
 
-    // Past this point the request was answered, and http.ts owns what that
+    // Past this point the request was answered, and shared/http.ts owns what that
     // means: the body read moved here from beside the fetch, because a 200
     // whose stream then stalls -- the timeout covers it too -- is the same
     // case as a body that will not parse.

@@ -54,10 +54,16 @@
  * request was answered, and whether it took effect is exactly what is unknown.
  */
 import { CsmsNotDispatchedError, type FetchLike } from "../contracts.ts";
+import {
+  errorBody,
+  parseAnsweredBody,
+  readAnsweredText,
+  reason,
+  setCookiePairs,
+} from "../shared/http.ts";
 import type { EvslConfig } from "./config.ts";
 
 const REQUEST_TIMEOUT_MS = 15_000;
-const BODY_PREVIEW = 300;
 
 interface Session {
   token: string;
@@ -87,32 +93,12 @@ const refusedAt = new Map<string, number>();
 /** The server's login rate-limit window: how long a kept refusal is kept. */
 const KEPT_REFUSAL_MS = 15 * 60_000;
 
-/** An error's message, or the thrown value as a string. */
-export function reason(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-/** The first characters of a text quoted in a failure message. */
-function preview(text: string): string {
-  return text.slice(0, BODY_PREVIEW);
-}
-
-async function bodyPreview(res: Response): Promise<string> {
-  return preview(await res.text().catch(() => "<unreadable body>"));
-}
-
-/** The value of one cookie among a response's `Set-Cookie` headers, or
- *  undefined. Only the CSRF cookie is ever read, so this is not a jar. */
+/** The value of the first cookie named `name` among a response's `Set-Cookie`
+ *  headers, or undefined when absent or empty. Only the CSRF cookie is ever
+ *  read, so this is not a jar. */
 function setCookie(res: Response, name: string): string | undefined {
-  for (const header of res.headers.getSetCookie()) {
-    const [pair] = header.split(";");
-    const eq = pair?.indexOf("=") ?? -1;
-    if (pair !== undefined && eq > 0 && pair.slice(0, eq).trim() === name) {
-      const value = pair.slice(eq + 1).trim();
-      return value === "" ? undefined : value;
-    }
-  }
-  return undefined;
+  const value = setCookiePairs(res).find(([n]) => n === name)?.[1];
+  return value === "" ? undefined : value;
 }
 
 /** The signin statuses a retry would only repeat: bad credentials (401) and
@@ -194,7 +180,7 @@ export class EvslApi {
     if (!csrfRes.ok) {
       throw new CsmsNotDispatchedError(
         "codetics-ev-server-lite: GET /api/v1/auth/csrf",
-        `returned ${csrfRes.status}: ${await bodyPreview(csrfRes)}`,
+        `returned ${csrfRes.status}: ${await errorBody(csrfRes)}`,
       );
     }
     const csrfBody = (await csrfRes.json().catch(() => null)) as {
@@ -224,10 +210,10 @@ export class EvslApi {
           what,
           `${refused} -- the server counts every attempt against a limit of ten per` +
             " fifteen minutes, so this process will not try again for fifteen minutes" +
-            `: ${await bodyPreview(res)}`,
+            `: ${await errorBody(res)}`,
         );
       }
-      throw new CsmsNotDispatchedError(what, `${refused}: ${await bodyPreview(res)}`);
+      throw new CsmsNotDispatchedError(what, `${refused}: ${await errorBody(res)}`);
     }
     const body = (await res.json().catch(() => null)) as {
       token?: unknown;
@@ -287,22 +273,10 @@ export class EvslApi {
 
     const what = `codetics-ev-server-lite: ${method} ${path}`;
     if (!res.ok) {
-      throw new CsmsNotDispatchedError(what, `returned ${res.status}: ${await bodyPreview(res)}`);
+      throw new CsmsNotDispatchedError(what, `returned ${res.status}: ${await errorBody(res)}`);
     }
 
-    let text: string;
-    try {
-      text = await res.text();
-    } catch (err) {
-      throw new Error(
-        `${what} answered ${res.status} but its body could not be read: ${reason(err)}`,
-      );
-    }
-    if (text === "") return null;
-    try {
-      return JSON.parse(text) as unknown;
-    } catch {
-      throw new Error(`${what} returned unparseable body: ${preview(text)}`);
-    }
+    const text = await readAnsweredText(res, what);
+    return text === "" ? null : parseAnsweredBody(text, what);
   }
 }
