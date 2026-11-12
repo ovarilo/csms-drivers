@@ -37,6 +37,8 @@ export interface FakeCodeticsAdmin {
   readonly active: Set<string>;
   /** Every admin request, signin and csrf excluded. */
   readonly sent: FakeCodeticsAdminSent[];
+  /** Every request, signin and csrf included, never reset by the fake. */
+  readonly all: FakeCodeticsAdminSent[];
   /** Faults to inject; each is off until a test turns it on. */
   readonly faults: {
     /** `PUT .../security` answers 500 without changing the profile. */
@@ -58,6 +60,7 @@ export function fakeCodeticsAdmin(): FakeCodeticsAdmin {
   const stations = new Map<string, FakeStation>();
   const active = new Set<string>();
   const sent: FakeCodeticsAdminSent[] = [];
+  const all: FakeCodeticsAdminSent[] = [];
   const faults = { security: false, secret: false, omitSecret: false, delete: false };
   let secrets = 0;
   const newSecret = (): string => `generated-secret-${++secrets}`;
@@ -71,6 +74,8 @@ export function fakeCodeticsAdmin(): FakeCodeticsAdmin {
   const fetchImpl: FetchLike = async (input, init) => {
     const method = init?.method ?? "GET";
     const path = new URL(input).pathname;
+    const raw: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+    all.push({ method, path, body: raw });
     if (method === "GET" && path === "/api/v1/auth/csrf") {
       return json({ token: "csrf-1", headerName: "X-XSRF-TOKEN" }, 200, {
         "set-cookie": "XSRF-TOKEN=csrf-1; Path=/",
@@ -130,5 +135,5 @@ export function fakeCodeticsAdmin(): FakeCodeticsAdmin {
     }
     return json({ error: `unexpected ${method} ${path}` }, 404);
   };
-  return { fetch: fetchImpl, stations, active, sent, faults };
+  return { fetch: fetchImpl, stations, active, sent, all, faults };
 }

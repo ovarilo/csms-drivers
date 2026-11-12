@@ -157,7 +157,7 @@ export function createEvslChargePoints(
 
   async function rotateSecret(cpId: string): Promise<string> {
     const path = stationPath(cpId, "/secret");
-    return requireSecret((await api.call("POST", path)).body, `POST ${path}`);
+    return requireSecret((await api.call("POST", path, undefined, [], true)).body, `POST ${path}`);
   }
 
   return {
@@ -167,7 +167,13 @@ export function createEvslChargePoints(
       checkSecurity("create", security);
       const name = checkName("create", definition.description);
 
-      const { status, body } = await api.call("POST", STATIONS, { id: definition.id, name }, [409]);
+      const { status, body } = await api.call(
+        "POST",
+        STATIONS,
+        { id: definition.id, name },
+        [409],
+        true,
+      );
       if (status === 409) throw new ChargePointAlreadyExistsError(definition.id);
       // From here the station exists: any failure deletes it again.
       try {

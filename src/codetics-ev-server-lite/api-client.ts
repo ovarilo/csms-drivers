@@ -301,12 +301,16 @@ export class EvslApi {
    * a failure: the caller reads it, e.g. a 404 that means "absent". Any other
    * non-2xx is a plain `Error` -- the admin calls are not OCPP CALLs, so
    * "never dispatched" has no meaning for them.
+   *
+   * `secretBearing` marks a call whose 2xx body carries a generated secret: a
+   * body that will not parse is then reported without being quoted.
    */
   async call(
     method: EvslHttpMethod,
     path: string,
     body?: unknown,
     accepted: readonly number[] = [],
+    secretBearing = false,
   ): Promise<{ readonly status: number; readonly body: unknown }> {
     const res = await this.exchange(method, path, body);
     const what = `codetics-ev-server-lite: ${method} ${path}`;
@@ -317,11 +321,17 @@ export class EvslApi {
       }
       throw new Error(`${what} returned ${res.status}: ${await errorBody(res)}`);
     }
-    return { status: res.status, body: await this.answeredBody(res, what) };
+    return { status: res.status, body: await this.answeredBody(res, what, secretBearing) };
   }
 
-  private async answeredBody(res: Response, what: string): Promise<unknown> {
+  private async answeredBody(res: Response, what: string, quiet = false): Promise<unknown> {
     const text = await readAnsweredText(res, what);
-    return text === "" ? null : parseAnsweredBody(text, what);
+    if (text === "") return null;
+    if (!quiet) return parseAnsweredBody(text, what);
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      throw new Error(`${what} returned unparseable body (not quoted: it may hold a secret)`);
+    }
   }
 }
