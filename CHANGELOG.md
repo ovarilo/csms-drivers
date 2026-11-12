@@ -13,8 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `operations16`/`operations201`, and `poll` when `capabilities.commands.polling`) reports a `CommandOutcome` (`unsupported`, `rejected`,
   `accepted`, `confirmed`, `failed`, `unknown`) as a value: every verdict is returned, and
   `submit16` throws only when none can be given. A timeout after dispatch is
-  `unknown`, never `failed`. `execute` is unchanged and no bundled driver provides `commands`
-  yet. Over HTTP, the `202` of an operation gains `outcome` when the driver has `commands`
+  `unknown`, never `failed`. `execute` is unchanged. Over HTTP, the `202` of an operation gains `outcome` when the driver has `commands`
   (`status: "dispatched"` stays, errors and `504` are unchanged), `GET /v1/commands/{ref}` serves
   polling, and `GET /v1/driver` reports `commands`. See "Command outcomes" in
   `src/server/README.md`.
@@ -33,6 +32,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   answer. The JWT login is shared per process and renewed when it runs out, and a refused login
   is remembered for fifteen minutes. Ported from open-ocpp-tck's `drivers/evtivity`, without its
   TCK fixtures.
+- Command outcomes for the four bundled drivers (`driver.commands`, see above). Codetics
+  ev-server-lite and EVtivity read the station's answer (`completion: "confirmed"`); Codetics
+  also polls by command id, EVtivity has no `poll`. SteVe and CitrineOS are accepted-only
+  (`completion: "accepted"`, no `poll`): a dispatched command is `accepted`, never `confirmed`,
+  and CitrineOS `v1` has no `submit201`. A timeout is `unknown`; what `execute` throws is still
+  thrown. The README tabulates what a `2xx` or `CALLRESULT` means per driver, with retry guidance.
+- `CommandWaitInterruptedError` is exported by the EVtivity driver module: a
+  `CsmsNotDispatchedError` for a command wait that was interrupted after the CALL may have left,
+  which `commands.submit16` reports as `unknown`.
 - Subpath exports for the drivers' building blocks, for adapters that compose their own driver:
   `@ovarilo/csms-drivers/steve/{api-client,ui-client,forms,charge-points}` and
   `@ovarilo/csms-drivers/citrineos/{api-client,config,http,requests,variant}`.
