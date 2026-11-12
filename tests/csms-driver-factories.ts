@@ -231,7 +231,7 @@ async function verifyCitrine16Factory(): Promise<void> {
 }
 
 /**
- * `commands` on the accepted-only drivers (SteVe). Neither CSMS
+ * `commands` on the two accepted-only drivers (SteVe, CitrineOS). Neither CSMS
  * hands back the station's answer, so a successful dispatch is `accepted`,
  * never `confirmed`, with no ref (nothing to poll) and no `poll`. What
  * `execute` throws -- a capability gap, a request that never became a CALL --
@@ -310,6 +310,57 @@ async function verifyAcceptedOnlyCommands(): Promise<void> {
       }),
     )) instanceof UnsupportedOperationError,
     "SteVe submit16 throws UnsupportedOperationError for a request it cannot express",
+  );
+
+  const citrineFetch: FetchLike = async () =>
+    Response.json([{ success: true, payload: "Accepted" }]);
+  const refs = { ocppTransactionId: async () => 1 };
+  const v2 = createCitrineOsCsmsDriver({
+    config: { variant: "v2", apiUrl: "http://citrine/api", tenantId: 7 },
+    refs,
+    fetch: citrineFetch,
+  });
+  check(
+    v2.capabilities.commands?.completion === "accepted" &&
+      v2.capabilities.commands.polling === false &&
+      v2.commands?.poll === undefined,
+    "CitrineOS v2 declares commands { completion: accepted, polling: false } and no poll",
+  );
+  check(
+    shape((await v2.commands?.submit16("CP-2", reset)) as CommandOutcome) === "accepted",
+    "CitrineOS v2 submit16 reports an accepted outcome without a ref",
+  );
+  check(
+    shape(
+      (await v2.commands?.submit201?.("CP-2", {
+        action: "Reset",
+        type: "Immediate",
+      })) as CommandOutcome,
+    ) === "accepted",
+    "CitrineOS v2 submit201 reports an accepted outcome without a ref",
+  );
+  const v1 = createCitrineOsCsmsDriver({
+    config: { variant: "v1", apiUrl: "http://citrine/api", tenantId: 7 },
+    refs,
+    fetch: citrineFetch,
+  });
+  check(
+    v1.capabilities.commands?.completion === "accepted" && v1.commands?.submit201 === undefined,
+    "CitrineOS v1 declares commands but has no submit201, like operations201",
+  );
+  check(
+    shape((await v1.commands?.submit16("CP-2", reset)) as CommandOutcome) === "accepted",
+    "CitrineOS v1 submit16 reports an accepted outcome",
+  );
+  check(
+    (await thrown(
+      createCitrineOsCsmsDriver({
+        config: { variant: "v2", apiUrl: "http://citrine/api", tenantId: 7 },
+        refs,
+        fetch: async () => new Response("down", { status: 500 }),
+      }).commands!.submit16("CP-2", reset),
+    )) instanceof Error,
+    "CitrineOS submit16 throws what execute throws when the API refuses",
   );
 }
 
