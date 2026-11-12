@@ -182,8 +182,9 @@ await driver.operations16.execute("CP-1", { action: "Reset", type: "Soft" });
   so an abandoned one may still reach the station later.
 - The server counts every signin against a limit of ten per fifteen minutes per
   account, until it restarts. The driver logs in once per process, server and
-  account, shared by every driver instance; a signin refused 401, 403 or 429 is
-  remembered for the life of the process instead of retried.
+  account, shared by every driver instance. A signin refused 401, 403 or 429 is
+  remembered for fifteen minutes instead of retried, and a request answered
+  401 (an expired token) logs in again and is retried once.
 - `GetConfiguration` with a key list is an `UnsupportedOperationError`: the
   server's validator refuses any array `key` member. Requesting every key works.
 - Transaction refs are the OCPP `transactionId`, as the server uses it as its

@@ -43,6 +43,11 @@
  *     the caller's lookup does not know and a transaction ref that is not an
  *     integer are plain `Error`s, never capability gaps. Capabilities declare
  *     every OCPP 1.6 action, no OCPP 2.0.1 and no charge-point administration.
+ *  9. A long-lived process outlives its token. An authenticated request
+ *     answered 401 drops the cached session, logs in once more and is retried
+ *     once; a second 401 is the request's answer, with no third signin.
+ * 10. A kept signin refusal expires with the server's fifteen-minute window,
+ *     so a long-lived process recovers without a restart.
  *
  * Each row gets its own server URL because the session cache is module-level
  * and keyed by server and account: a shared key would let one row's cached
@@ -660,6 +665,70 @@ for (const kase of REFUSAL_CASES) {
     driver.capabilities.chargePoints === undefined && driver.chargePoints === undefined,
     "part 8: the driver must not claim charge-point administration",
   );
+}
+
+// ---------------------------------------------------------------------------
+// Parts 9-10: a long-lived process
+// ---------------------------------------------------------------------------
+
+const EXPIRED: Handler = () => json({ message: "token expired" }, 401);
+
+{
+  const what = "part 9: a command POST answered 401 once";
+  const url = freshUrl();
+  const srv = server({ post: [EXPIRED, () => json({ id: "cmd-1", state: "QUEUED" })] });
+  const first = await outcomeOf(driverFor(url, srv).operations16.execute("CP1", RESET));
+  check(first.ok, `${what}: expected a fresh login and a retried POST: ${message(first.err)}`);
+  check(
+    srv.count.signin === 2 && srv.count.post === 2,
+    `${what}: expected 2 signins and 2 POSTs, got ${srv.count.signin} and ${srv.count.post}`,
+  );
+  const second = await outcomeOf(driverFor(url, srv).operations16.execute("CP1", RESET));
+  check(
+    second.ok && srv.count.signin === 2,
+    `${what}: the next call must reuse the fresh session, got ${srv.count.signin} signins`,
+  );
+}
+
+{
+  const what = "part 9: a command POST answered 401 twice";
+  const srv = server({ post: [EXPIRED] });
+  const result = await outcomeOf(driverFor(freshUrl(), srv).operations16.execute("CP1", RESET));
+  check(
+    !result.ok && classify(result.err) === "not-dispatched",
+    `${what}: expected a non-dispatch, got ${result.ok ? "dispatched" : classify(result.err)}`,
+  );
+  check(
+    srv.count.signin === 2 && srv.count.post === 2,
+    `${what}: expected one retry, got ${srv.count.signin} signins and ${srv.count.post} POSTs`,
+  );
+}
+
+{
+  const what = "part 10: a 429 signin refusal after fifteen minutes";
+  const realNow = Date.now;
+  let offsetMs = 0;
+  Date.now = () => realNow() + offsetMs;
+  try {
+    const url = freshUrl();
+    const srv = server({ signin: [() => json({}, 429), SIGNIN_OK] });
+    const first = await outcomeOf(driverFor(url, srv).operations16.execute("CP1", RESET));
+    offsetMs = 14 * 60_000;
+    const within = await outcomeOf(driverFor(url, srv).operations16.execute("CP1", RESET));
+    check(
+      !first.ok && !within.ok && srv.count.signin === 1,
+      `${what}: the refusal must hold within the window, got ${srv.count.signin} signins`,
+    );
+    offsetMs = 15 * 60_000;
+    const after = await outcomeOf(driverFor(url, srv).operations16.execute("CP1", RESET));
+    check(
+      after.ok && srv.count.signin === 2,
+      `${what}: expected a new login after the window, got ${srv.count.signin} signins` +
+        (after.ok ? "" : `: ${message(after.err)}`),
+    );
+  } finally {
+    Date.now = realNow;
+  }
 }
 
 if (failures.length > 0) {

@@ -29,11 +29,18 @@
  * more budget. A 403 never reaches login -- the security chain's access-denied
  * handler sends it, i.e. the CSRF pair was refused -- and is kept because the
  * same pair would be refused again, not because it was counted. Those three
- * are kept for the life of the process. Every other failure is dropped from the
+ * are kept for the server's fifteen-minute window, so a long-lived process
+ * (an HTTP handler, say) recovers without a restart. Every other failure is dropped from the
  * cache and the next call tries again: a `fetch` that threw (a CSMS still
  * booting), any answer to the uncounted `GET /api/v1/auth/csrf`, a 2xx without
  * a token, and a signin 5xx -- which WAS counted, and is retried anyway because
  * it is the server's transient fault.
+ *
+ * A TOKEN OUTLIVED. Signin answers an `expires_at`, and a process serving a
+ * driver can outlive it. An authenticated request answered 401 drops the
+ * cached session -- unless another caller already replaced it -- logs in once
+ * more and is sent again, once: a 401 on the fresh token is the request's
+ * answer, not a reason to spend more of the signin budget.
  *
  * FAILURE CLASSES. A request `fetch` could not complete, and one the server
  * answered with a non-2xx status, are both {@link CsmsNotDispatchedError}: for
@@ -56,6 +63,12 @@ interface Session {
 
 /** Keyed by server and account. See the header for why it is process-wide. */
 const sessions = new Map<string, Promise<Session>>();
+
+/** When each kept signin refusal in {@link sessions} was received. */
+const refusedAt = new Map<string, number>();
+
+/** The server's login rate-limit window: how long a kept refusal is kept. */
+const KEPT_REFUSAL_MS = 15 * 60_000;
 
 /** An error's message, or the thrown value as a string. */
 export function reason(err: unknown): string {
@@ -142,17 +155,31 @@ export class EvslApi {
   /** The cached session, logging in on first use. */
   private session(): Promise<Session> {
     const key = this.sessionKey();
+    const refused = refusedAt.get(key);
+    if (refused !== undefined && Date.now() - refused >= KEPT_REFUSAL_MS) {
+      this.forget(sessions.get(key));
+    }
     let pending = sessions.get(key);
     if (pending === undefined) {
-      pending = this.login();
-      sessions.set(key, pending);
-      pending.catch((err: unknown) => {
-        if (!(err instanceof SigninRefused) && sessions.get(key) === pending) {
-          sessions.delete(key);
-        }
+      const attempt = this.login();
+      pending = attempt;
+      sessions.set(key, attempt);
+      attempt.catch((err: unknown) => {
+        if (sessions.get(key) !== attempt) return;
+        if (err instanceof SigninRefused) refusedAt.set(key, Date.now());
+        else sessions.delete(key);
       });
     }
     return pending;
+  }
+
+  /** Drops `pending` from the cache, unless another caller replaced it. */
+  private forget(pending: Promise<Session> | undefined): void {
+    const key = this.sessionKey();
+    if (pending !== undefined && sessions.get(key) === pending) {
+      sessions.delete(key);
+      refusedAt.delete(key);
+    }
   }
 
   private async login(): Promise<Session> {
@@ -188,7 +215,7 @@ export class EvslApi {
         what,
         `returned ${res.status} for ${this.cfg.email} on tenant ${this.cfg.tenant}` +
           " -- the server counts every attempt against a limit of ten per" +
-          " fifteen minutes, so this process will not try again" +
+          " fifteen minutes, so this process will not try again for fifteen minutes" +
           `: ${await bodyPreview(res)}`,
       );
     }
@@ -206,19 +233,15 @@ export class EvslApi {
     return { token: body.token, csrf: setCookie(res, "XSRF-TOKEN") ?? csrf, csrfHeader };
   }
 
-  /**
-   * One authenticated request. A method other than GET makes it a mutation,
-   * which carries the CSRF pair. `allow` lists the non-2xx statuses the caller
-   * handles itself -- a 404 that means "no such record", a 409 that means
-   * "already there" -- and returns rather than throws for.
-   */
-  async request(
-    method: "GET" | "POST" | "PUT" | "DELETE",
+  /** One send under the cached session, with the session it used. A method
+   *  other than GET carries the CSRF pair. */
+  private async authenticated(
+    method: string,
     path: string,
-    body?: unknown,
-    allow: readonly number[] = [],
-  ): Promise<ApiResponse> {
-    const session = await this.session();
+    body: unknown,
+  ): Promise<{ res: Response; pending: Promise<Session> }> {
+    const pending = this.session();
+    const session = await pending;
     const mutating = method !== "GET";
     const res = await this.send(
       method,
@@ -233,6 +256,29 @@ export class EvslApi {
     );
     const rotated = setCookie(res, "XSRF-TOKEN");
     if (rotated !== undefined) session.csrf = rotated;
+    return { res, pending };
+  }
+
+  /**
+   * One authenticated request. A method other than GET makes it a mutation,
+   * which carries the CSRF pair. `allow` lists the non-2xx statuses the caller
+   * handles itself -- a 404 that means "no such record", a 409 that means
+   * "already there" -- and returns rather than throws for.
+   */
+  async request(
+    method: "GET" | "POST" | "PUT" | "DELETE",
+    path: string,
+    body?: unknown,
+    allow: readonly number[] = [],
+  ): Promise<ApiResponse> {
+    const first = await this.authenticated(method, path, body);
+    let res = first.res;
+    if (res.status === 401 && !allow.includes(401)) {
+      // See the header: a token outlived, retried once on a fresh login.
+      await res.body?.cancel();
+      this.forget(first.pending);
+      res = (await this.authenticated(method, path, body)).res;
+    }
 
     const what = `codetics-ev-server-lite: ${method} ${path}`;
     if (!res.ok && !allow.includes(res.status)) {
