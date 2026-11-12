@@ -7,8 +7,8 @@
  * three states, and the report keeps them apart:
  *
  *  - `passed`: the rule was asked and the driver met it every time;
- *  - `failed`: the rule was asked and the driver broke it, or the suite could
- *    not finish asking;
+ *  - `failed`: the rule was asked and the driver broke it; or, as one extra
+ *    entry naming no rule, the suite could not finish asking;
  *  - `skipped`: the rule depends on something the driver does not declare (a
  *    capability, a registration status, a security profile), so it was not
  *    asked. A skipped rule is never counted as passed: "not applicable" and
@@ -29,7 +29,13 @@ export interface ConformanceSkip<R extends string = string> {
   readonly reason: string;
 }
 
-/** The outcome of one suite run; every rule of the suite appears exactly once. */
+/**
+ * The outcome of one suite run. Every rule of the suite appears exactly once
+ * across the three lists, with one exception: when the suite could not finish
+ * asking (the driver threw where its contract says it resolves), `failed`
+ * ALSO holds one extra entry for the abort, whose `rule` is the failure
+ * description and not a rule name; the rules never reached are `skipped`.
+ */
 export interface ConformanceReport<R extends string = string> {
   readonly passed: readonly R[];
   readonly failed: readonly ConformanceFailure<R>[];
@@ -47,9 +53,11 @@ export interface ConformanceRecorder<R extends string> {
   expect(condition: boolean, rule: R, detail?: string): void;
   /** Marks rules as not applicable, unless they end up asked after all. */
   skip(rules: R | readonly R[], reason: string): void;
-  /** Records a break that belongs to no declared rule (the suite could not finish). */
+  /** Records a break that belongs to no declared rule (the suite could not finish):
+   *  an extra `failed` entry, beside the rules left `skipped` as unreached. */
   abort(rule: string, detail: string): void;
-  /** The report: every rule of `rules` once, in order; an unasked, unexplained one is skipped. */
+  /** The report: every rule of `rules` once, in order (an unasked, unexplained one is skipped
+   *  with `unreached`), then any aborts appended to `failed`. */
   report(unreached: string): ConformanceReport<R | string>;
 }
 

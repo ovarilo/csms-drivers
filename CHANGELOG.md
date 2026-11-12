@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `capabilities.chargePoints.basicAuthPassword` (`"supplied"`, the default, or `"generated"`)
+  and `capabilities.chargePoints.description` (`"optional"`, the default, or `"required"`):
+  what a CSMS imposes on a station's Basic Auth password and description. A CSMS that
+  generates the password gets `ChargePointSecurity` without `basicAuthPassword` for profile 1
+  or 2, and `create`/`update` return it once as `generatedBasicAuthPassword`
+  (`ChargePointProvisioned`); `get` never does. A required description must be given and
+  non-blank on `create` and cannot be cleared or blanked on `update`. A request that does not
+  match the declaration is refused with `UnsupportedOperationError` and changes nothing. Over
+  HTTP the `POST` answer gains `generatedBasicAuthPassword` beside the id, a `PATCH` that
+  rotated a password answers `200` with it instead of `204` (both `cache-control: no-store`,
+  never logged), a missing or blank required description answers `400 invalid_input`, and
+  `GET /v1/driver` reports both declarations. SteVe declares `"supplied"` and `"optional"`.
+  `chargePointAdminConformance` gains six rules, each with a flawed copy in the guard.
+
 - Optional command outcomes: `CsmsDriver.commands` (`submit16`, `submit201?` mirroring
   `operations16`/`operations201`, and `poll` when `capabilities.commands.polling`) reports a `CommandOutcome` (`unsupported`, `rejected`,
   `accepted`, `confirmed`, `failed`, `unknown`) as a value: every verdict is returned, and
@@ -58,6 +72,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Breaking for code that implements `CsmsChargePointAdmin`: `create` and `update` now return
+  `Promise<void | ChargePointProvisioned>` (still assignable from `Promise<void>`, but a caller
+  that treated the result as `void` must now read it) and `ChargePointSecurity` gains a profile
+  1 or 2 arm without `basicAuthPassword`. External drivers, such as ones written against the
+  previous types, fail to type-check where they read `security.basicAuthPassword` as a
+  `string` or narrow the union; use `suppliedBasicAuthPassword(security)` and refuse the
+  passwordless arm with `UnsupportedOperationError` (or declare `"generated"`). Over HTTP, a
+  profile 1 or 2 without a password is no longer `400 invalid_input`: it is
+  `501 unsupported_capability` on a driver that declares `"supplied"`.
 - The charge-point conformance suite reports through a `ConformanceReport`.
   `updateAppliesRegistration` and `updateAppliesSecurity` are now `skipped` when the declaration
   leaves no status or profile to move to, where the first used to pass vacuously and the second
