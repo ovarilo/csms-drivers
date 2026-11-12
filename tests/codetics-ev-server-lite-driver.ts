@@ -16,7 +16,7 @@
  * session is cached per process, and a cached FAILURE is the dangerous half --
  * every later caller inherits it.
  *
- * PROPERTY, in 12 parts:
+ * PROPERTY, in 14 parts:
  *  1. The command states, both directions. SENT, SUCCEEDED and FAILED with a
  *     result are dispatched and resolve. FAILED with no result, TIMED_OUT,
  *     CANCELLED and QUEUED past the wait are `CsmsNotDispatchedError`. A state
@@ -43,7 +43,7 @@
  *     `UnsupportedOperationError` and queues nothing; a charging-profile ref
  *     the caller's lookup does not know and a transaction ref that is not an
  *     integer are plain `Error`s, never capability gaps. Capabilities declare
- *     every OCPP 1.6 action, no OCPP 2.0.1 and no charge-point administration.
+ *     every OCPP 1.6 action and no OCPP 2.0.1.
  *  9. A long-lived process outlives its token. An authenticated request
  *     answered 401 once the token reached its `expires_at` drops the cached
  *     session, logs in once more and is retried once; a second 401 is the
@@ -66,6 +66,20 @@
  *     `null` for a ref the list does not show. A request that never became a
  *     CALL still throws exactly as `execute` does, and no outcome quotes the
  *     password or the bearer token. `execute` is untouched.
+ * 13. `chargePoints` passes the shared conformance suite against a fake admin
+ *     API, under the default configuration and with `allowUnauthenticated` and
+ *     `clientCaConfigured`; nothing is skipped that the declaration makes
+ *     applicable, and the declaration is the one the server supports: profile
+ *     1 always, 0 and 3 only when configured, never 2, only Accepted,
+ *     generated passwords, a required description.
+ * 14. What the suite cannot see. The generated secret is returned once and by
+ *     no read; a station created on profile 0 or 3 does not return the secret
+ *     the server made on the way; `update` replaces the record with every
+ *     member it read, not just the one it changed; `delete` resolves a 404 and
+ *     answers a 409 (active session) with a plain `Error`, not an
+ *     UnsupportedOperationError or a CsmsNotDispatchedError; a refused call
+ *     sends no request at all; and no request, answer or error quotes the
+ *     admin password.
  *
  * Each row gets its own server URL because the session cache is module-level
  * and keyed by server, account and password: a shared key would let one row's cached
@@ -78,12 +92,16 @@ import {
   CSMS_OPERATION_16_ACTIONS,
   CsmsNotDispatchedError,
   UnsupportedOperationError,
+  codeticsEvServerLiteCapabilities,
   createCodeticsEvServerLiteCsmsDriver,
   type CsmsDriver,
   type CsmsOperation16,
   type EvslChargingProfile,
   type FetchLike,
 } from "@ovarilo/csms-drivers";
+
+import { chargePointAdminConformance } from "@ovarilo/csms-drivers/conformance";
+import { fakeCodeticsAdmin } from "./fixtures/fake-codetics-admin.ts";
 
 const failures: string[] = [];
 
@@ -710,8 +728,8 @@ for (const kase of REFUSAL_CASES) {
     "part 8: the driver must not claim OCPP 2.0.1",
   );
   check(
-    driver.capabilities.chargePoints === undefined && driver.chargePoints === undefined,
-    "part 8: the driver must not claim charge-point administration",
+    driver.capabilities.chargePoints !== undefined && driver.chargePoints !== undefined,
+    "part 8: the driver declares charge-point administration, and part 13 holds it",
   );
 }
 
@@ -1047,6 +1065,188 @@ for (const [what, routes, expect] of [
   const srv = server({ poll: [row("SENT")] });
   const r = await outcomeOf(driverFor(freshUrl(), srv).operations16.execute("CP1", RESET));
   check(r.ok, "12: execute resolves at SENT as before");
+}
+
+// ---------------------------------------------------------------------------
+// Parts 13-14: charge-point administration
+// ---------------------------------------------------------------------------
+
+const ADMIN_CONFIG = (apiUrl: string) => ({
+  apiUrl,
+  tenant: "codetics",
+  email: "admin@example.test",
+  password: "a-password-of-16-chars",
+});
+
+{
+  const variants: readonly [
+    string,
+    { allowUnauthenticated?: boolean; clientCaConfigured?: boolean },
+    number[],
+  ][] = [
+    ["default", {}, [1]],
+    ["allowUnauthenticated", { allowUnauthenticated: true }, [0, 1]],
+    ["clientCaConfigured", { clientCaConfigured: true }, [1, 3]],
+    ["both", { allowUnauthenticated: true, clientCaConfigured: true }, [0, 1, 3]],
+  ];
+  for (const [name, options, profiles] of variants) {
+    const admin = fakeCodeticsAdmin();
+    const driver = createCodeticsEvServerLiteCsmsDriver({
+      config: ADMIN_CONFIG(freshUrl()),
+      fetch: admin.fetch,
+      ...options,
+    });
+    const declared = driver.capabilities.chargePoints;
+    check(
+      declared !== undefined &&
+        [...declared.securityProfiles].sort().join() === profiles.join() &&
+        declared.registrations?.size === 1 &&
+        declared.registrations.has("Accepted") &&
+        declared.basicAuthPassword === "generated" &&
+        declared.description === "required",
+      `13 (${name}): the declaration must be profiles ${profiles.join()}, Accepted only, generated, required`,
+    );
+    const config = codeticsEvServerLiteCapabilities(options).chargePoints;
+    check(
+      config !== undefined && [...config.securityProfiles].sort().join() === profiles.join(),
+      `13 (${name}): the builder must derive the same profiles without a client`,
+    );
+    const report = await chargePointAdminConformance(driver);
+    check(
+      report.failed.length === 0,
+      `13 (${name}): the conformance suite must pass: ${JSON.stringify(report.failed)}`,
+    );
+    check(
+      report.passed.length > 0,
+      `13 (${name}): the conformance suite must have passed some rules, not skipped them all`,
+    );
+    check(admin.stations.size === 0, `13 (${name}): the suite must leave no station behind`);
+  }
+}
+
+{
+  const admin = fakeCodeticsAdmin();
+  const driver = createCodeticsEvServerLiteCsmsDriver({
+    config: ADMIN_CONFIG(freshUrl()),
+    fetch: admin.fetch,
+    allowUnauthenticated: true,
+    clientCaConfigured: true,
+  });
+  const cp = driver.chargePoints!;
+
+  const created = await cp.create({ id: "CP A/1", security: { profile: 1 }, description: "bay" });
+  const secret = created?.generatedBasicAuthPassword;
+  check(
+    secret === admin.stations.get("CP A/1")?.secret,
+    "14: create returns the secret the server generated",
+  );
+  check(admin.sent[0]?.path === "/api/v1/stations", "14: create posts to /api/v1/stations");
+  check(
+    !JSON.stringify(await cp.get("CP A/1")).includes(secret ?? "?"),
+    "14: no read returns the secret",
+  );
+
+  // Profile 0 and 3: the server starts on profile 1, so the driver moves the
+  // station and must not hand back the secret it made on the way.
+  for (const profile of [0, 3] as const) {
+    const id = `CP-P${profile}`;
+    const result = await cp.create({ id, security: { profile }, description: "x" });
+    check(
+      result === undefined || result.generatedBasicAuthPassword === undefined,
+      `14: create on profile ${profile} returns no secret`,
+    );
+    check(
+      admin.stations.get(id)?.securityProfile === profile,
+      `14: create on profile ${profile} applies it`,
+    );
+    const move = admin.sent.filter((r) => r.path.endsWith(`/stations/${id}/security`));
+    check(
+      move.length === 1 &&
+        JSON.stringify(move[0]?.body) ===
+          JSON.stringify({ securityProfile: profile, sendToStation: false }),
+      `14: profile ${profile} is applied server-side with sendToStation false`,
+    );
+  }
+
+  // A profile 0 station, moved back to 1, gets a new secret.
+  const back = await cp.update("CP-P0", { security: { profile: 1 } });
+  check(
+    typeof back?.generatedBasicAuthPassword === "string" &&
+      back.generatedBasicAuthPassword === admin.stations.get("CP-P0")?.secret,
+    "14: update to profile 1 returns the secret it generated",
+  );
+
+  // Read-modify-write: the server replaces the whole record, so a member the
+  // driver did not send would be lost.
+  admin.stations.get("CP A/1")!.enabled = true;
+  admin.sent.length = 0;
+  await cp.update("CP A/1", { description: "renamed" });
+  const put = admin.sent.find((r) => r.method === "PUT");
+  check(
+    JSON.stringify(put?.body) ===
+      JSON.stringify({ id: "CP A/1", name: "renamed", enabled: true, securityProfile: 1 }),
+    `14: update replaces the record with every member it read: ${JSON.stringify(put?.body)}`,
+  );
+  check(
+    admin.stations.get("CP A/1")?.enabled === true && cp !== undefined,
+    "14: update keeps the members it did not name",
+  );
+
+  // delete
+  admin.active.add("CP A/1");
+  const busy = await cp.delete("CP A/1").then(
+    () => null,
+    (e: unknown) => e,
+  );
+  check(
+    busy instanceof Error &&
+      !(busy instanceof UnsupportedOperationError) &&
+      !(busy instanceof CsmsNotDispatchedError) &&
+      busy.constructor === Error &&
+      busy.message.includes("409"),
+    `14: delete during an active session is a plain Error naming 409: ${message(busy)}`,
+  );
+  check(admin.stations.has("CP A/1"), "14: a refused delete removes nothing");
+  admin.active.clear();
+  await cp.delete("CP A/1");
+  await cp.delete("CP A/1");
+  check(!admin.stations.has("CP A/1"), "14: delete removes, and a second delete resolves");
+
+  // Refusals send nothing.
+  admin.sent.length = 0;
+  const refusals: [string, () => Promise<unknown>][] = [
+    [
+      "a supplied password",
+      () =>
+        cp.create({ id: "X", security: { profile: 1, basicAuthPassword: "pw" }, description: "d" }),
+    ],
+    ["profile 2", () => cp.create({ id: "X", security: { profile: 2 }, description: "d" })],
+    ["a blank name", () => cp.create({ id: "X", security: { profile: 1 }, description: " " })],
+    ["a missing name", () => cp.create({ id: "X", security: { profile: 1 } })],
+    [
+      "Pending",
+      () =>
+        cp.create({ id: "X", registration: "Pending", security: { profile: 1 }, description: "d" }),
+    ],
+    ["a null description", () => cp.update("CP-P0", { description: null })],
+    ["a Rejected update", () => cp.update("CP-P0", { registration: "Rejected" })],
+  ];
+  for (const [what, run] of refusals) {
+    const err = await run().then(
+      () => null,
+      (e: unknown) => e,
+    );
+    check(err instanceof UnsupportedOperationError, `14: ${what} is an UnsupportedOperationError`);
+  }
+  check(
+    admin.sent.length === 0,
+    `14: a refused call sends no request: ${JSON.stringify(admin.sent)}`,
+  );
+
+  check(
+    !JSON.stringify(admin.sent).includes("a-password-of-16-chars"),
+    "14: no admin request body carries the admin password",
+  );
 }
 
 if (failures.length > 0) {

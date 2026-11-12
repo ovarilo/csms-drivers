@@ -72,6 +72,8 @@ import type { EvslConfig } from "./config.ts";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
+export type EvslHttpMethod = "GET" | "POST" | "PUT" | "DELETE";
+
 interface Session {
   token: string;
   csrf: string;
@@ -244,7 +246,7 @@ export class EvslApi {
   /** One send under the cached session, with the session it used. A method
    *  other than GET carries the CSRF pair. */
   private async authenticated(
-    method: string,
+    method: EvslHttpMethod,
     path: string,
     body: unknown,
   ): Promise<{ res: Response; pending: Promise<Session>; session: Session }> {
@@ -267,26 +269,58 @@ export class EvslApi {
     return { res, pending, session };
   }
 
+  /** One authenticated exchange, renewing the session once when the token
+   *  outlived its `expires_at`. See the header. */
+  private async exchange(method: EvslHttpMethod, path: string, body: unknown): Promise<Response> {
+    const first = await this.authenticated(method, path, body);
+    if (first.res.status === 401 && Date.now() >= first.session.renewableAt) {
+      // See the header: a token outlived, retried once on a fresh login.
+      await first.res.body?.cancel();
+      forget(this.sessionKey(), first.pending);
+      return (await this.authenticated(method, path, body)).res;
+    }
+    return first.res;
+  }
+
   /**
    * One authenticated request, answered with its parsed JSON body, or null
    * for an empty one. A method other than GET makes it a mutation, which
    * carries the CSRF pair.
    */
-  async request(method: "GET" | "POST", path: string, body?: unknown): Promise<unknown> {
-    const first = await this.authenticated(method, path, body);
-    let res = first.res;
-    if (res.status === 401 && Date.now() >= first.session.renewableAt) {
-      // See the header: a token outlived, retried once on a fresh login.
-      await res.body?.cancel();
-      forget(this.sessionKey(), first.pending);
-      res = (await this.authenticated(method, path, body)).res;
-    }
-
+  async request(method: EvslHttpMethod, path: string, body?: unknown): Promise<unknown> {
+    const res = await this.exchange(method, path, body);
     const what = `codetics-ev-server-lite: ${method} ${path}`;
     if (!res.ok) {
       throw new CsmsNotDispatchedError(what, `returned ${res.status}: ${await errorBody(res)}`);
     }
+    return this.answeredBody(res, what);
+  }
 
+  /**
+   * Like {@link request}, but a status in `accepted` is an answer rather than
+   * a failure: the caller reads it, e.g. a 404 that means "absent". Any other
+   * non-2xx is a plain `Error` -- the admin calls are not OCPP CALLs, so
+   * "never dispatched" has no meaning for them.
+   */
+  async call(
+    method: EvslHttpMethod,
+    path: string,
+    body?: unknown,
+    accepted: readonly number[] = [],
+  ): Promise<{ readonly status: number; readonly body: unknown }> {
+    const res = await this.exchange(method, path, body);
+    const what = `codetics-ev-server-lite: ${method} ${path}`;
+    if (!res.ok) {
+      if (accepted.includes(res.status)) {
+        await res.body?.cancel();
+        return { status: res.status, body: null };
+      }
+      throw new Error(`${what} returned ${res.status}: ${await errorBody(res)}`);
+    }
+    return { status: res.status, body: await this.answeredBody(res, what) };
+  }
+
+  private async answeredBody(res: Response, what: string): Promise<unknown> {
     const text = await readAnsweredText(res, what);
     return text === "" ? null : parseAnsweredBody(text, what);
   }

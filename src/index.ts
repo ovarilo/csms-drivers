@@ -11,9 +11,11 @@ export type { CitrineOsCsmsDriverOptions } from "./citrineos/index.ts";
 export {
   createCodeticsEvServerLiteCsmsDriver,
   CODETICS_EV_SERVER_LITE_CAPABILITIES,
+  codeticsEvServerLiteCapabilities,
 } from "./codetics-ev-server-lite/index.ts";
 export type {
   CodeticsEvServerLiteCsmsDriverOptions,
+  EvslChargePointOptions,
   EvslChargingProfile,
   EvslConfig,
   EvslRefs,
