@@ -151,7 +151,9 @@ administration:
   ],
   "chargePoints": {
     "securityProfiles": [0, 1, 2],
-    "registrations": ["Accepted", "Pending", "Rejected"]
+    "registrations": ["Accepted", "Pending", "Rejected"],
+    "basicAuthPassword": "supplied",
+    "description": "optional"
   },
   "commands": { "completion": "accepted", "polling": false }
 }
@@ -199,6 +201,26 @@ location: /v1/charge-points/CP-1
   the driver declares none.
 - `create` is not an upsert. If the id already exists, it answers
   `409 conflict` and changes nothing.
+- `chargePoints.basicAuthPassword` in the description says who chooses the
+  password of profile 1 and 2. `"supplied"` (the default) is the request above.
+  `"generated"`: send `"security": { "profile": 1 }` with no
+  `basicAuthPassword`; the CSMS makes one and the response carries it, once:
+
+  ```http
+  HTTP/1.1 201 Created
+  cache-control: no-store
+
+  { "id": "CP-1", "generatedBasicAuthPassword": "k3x9..." }
+  ```
+
+  The wrong shape for the driver (a password sent to a generating driver, none
+  to a supplying one) answers `501 unsupported_capability`. The password is
+  never read back by `GET` and never logged: log lines carry the method, the
+  path and the status, no body. It is not in `secrets` either, because it is
+  the payload; store it from the response.
+- `chargePoints.description` is `"optional"` (the default) or `"required"`.
+  When required, a `create` without a non-blank `description` answers
+  `400 invalid_input`.
 
 ```http
 GET /v1/charge-points/CP-1
@@ -219,7 +241,12 @@ content-type: application/json
 
 `PATCH` answers `204` and changes only the members it names. A `security`
 block replaces the whole block, so moving to profile 0 or 3 discards the
-stored password. `"description": null` clears the description. An unknown id
+stored password. On a driver that generates passwords, a `security` of profile
+1 or 2 without `basicAuthPassword` rotates it, and the answer is then `200`
+with `{ "generatedBasicAuthPassword": "..." }` (`cache-control: no-store`)
+instead of `204`. `"description": null` clears the description, unless the
+driver requires one: `null` or a blank description then answers
+`400 invalid_input`. An unknown id
 answers `404 not_found` and creates nothing. A `security.profile` or
 `registration` the driver does not declare answers
 `501 unsupported_capability`, checked before the id is looked up.

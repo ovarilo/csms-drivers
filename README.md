@@ -148,6 +148,21 @@ password cannot be read back, so whether an existing station matches a
 definition is undecidable, and the `get`-then-`create`-or-`update` idiom above
 is how a caller provisions idempotently.
 
+Two more declarations in `capabilities.chargePoints` say what a CSMS imposes:
+
+- `basicAuthPassword?: "supplied" | "generated"` (absent means `"supplied"`).
+  A driver that is `"generated"` makes the password of profile 1 and 2 itself:
+  the caller sends `security: { profile: 1 }` with no `basicAuthPassword`, and
+  `create` or `update` resolves with `{ generatedBasicAuthPassword }`, the only
+  time it is shown (`get` never returns it; updating a profile 1 or 2 rotates
+  it). A password sent to a generating driver, or none to a supplying one, is
+  refused with `UnsupportedOperationError`. Store the generated value from the
+  write's result: nothing can read it back.
+- `description?: "optional" | "required"` (absent means `"optional"`). When
+  `"required"`, `create` needs a non-blank description and `update` neither
+  clears (`null`) nor blanks it; both are refused with
+  `UnsupportedOperationError` and change nothing.
+
 The SteVe driver implements the surface, on every security profile, through
 the manager UI: SteVe has no REST endpoint for charge points
 ([steve-community/steve#2068](https://github.com/steve-community/steve/issues/2068)).
@@ -359,7 +374,13 @@ console.log(`${report.passed.length} passed, ${report.skipped.length} skipped`);
   read `passed` and `skipped` before calling a driver conformant. A driver
   with no `commands` has every `commandsConformance` rule skipped.
 
-Every rule of a suite appears in exactly one list.
+Every rule of a suite appears in exactly one of the three lists. One case adds
+to that: if the driver throws where its contract says it resolves, the suite
+cannot finish asking. The rules it had already asked keep their verdict, the
+ones it never reached are `skipped` (with a reason saying the run was cut
+short), and `failed` gains one extra entry whose `rule` is the description of
+the exception rather than a rule name. So `failed` may hold more entries than
+there are failing rules, and `conformanceHolds` is false.
 
 ### What each suite asks
 
