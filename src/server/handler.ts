@@ -39,7 +39,8 @@ import {
   encodeChargePointDetails,
 } from "./charge-points.ts";
 import { InvalidInputError } from "./decode.ts";
-import { classify, CsmsHttpError, CsmsTimeoutError, redact, redactDeep } from "./errors.ts";
+import { classify, CsmsHttpError, CsmsTimeoutError, redact } from "./errors.ts";
+import { encodeCommandOutcome } from "./outcomes.ts";
 import { decodeOperation16, OPERATION_16_PATHS, operation16ForPath } from "./operations16.ts";
 
 /** Who the driver is. Passed in rather than read off the driver, which does not carry it. */
@@ -263,8 +264,11 @@ export function createCsmsHttpHandler(
       }
       const poll = commands.poll;
       const outcome = await call(() => poll(cpId));
-      if (!outcome) notFound(`no command '${cpId}'`);
-      return json(200, { ref: redact(cpId, secrets), outcome: redactDeep(outcome, secrets) });
+      if (outcome === null) notFound(`no command '${cpId}'`);
+      return json(200, {
+        ref: redact(cpId, secrets),
+        outcome: encodeCommandOutcome(outcome, secrets),
+      });
     }
     if (collection !== "charge-points") noRoute();
 
@@ -323,7 +327,7 @@ export function createCsmsHttpHandler(
       return json(202, {
         ...accepted,
         status: "dispatched",
-        outcome: redactDeep(outcome, secrets),
+        outcome: encodeCommandOutcome(outcome, secrets),
       });
     }
     // The receipt stays here: it is a CSMS's own artefact -- a task URL, a
