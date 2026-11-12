@@ -9,10 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Optional command outcomes: `CsmsDriver.commands` (`submit`, and `poll` when
-  `capabilities.commands.polling`) reports a `CommandOutcome` (`unsupported`, `rejected`,
+- Optional command outcomes: `CsmsDriver.commands` (`submit16`, `submit201?` mirroring
+  `operations16`/`operations201`, and `poll` when `capabilities.commands.polling`) reports a `CommandOutcome` (`unsupported`, `rejected`,
   `accepted`, `confirmed`, `failed`, `unknown`) as a value: every verdict is returned, and
-  `submit` throws only when none can be given. A timeout after dispatch is
+  `submit16` throws only when none can be given. A timeout after dispatch is
   `unknown`, never `failed`. `execute` is unchanged and no bundled driver provides `commands`
   yet. Over HTTP, the `202` of an operation gains `outcome` when the driver has `commands`
   (`status: "dispatched"` stays, errors and `504` are unchanged), `GET /v1/commands/{ref}` serves

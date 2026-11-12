@@ -12,7 +12,7 @@
  *  2. EVERY STATE IS A VALUE. unsupported, rejected, accepted, confirmed,
  *     failed and unknown each reach the client in `outcome` on a 202 that
  *     still says `status: "dispatched"`, with the driver's own fields intact.
- *     One request makes one `submit` and no `execute`.
+ *     One request makes one `submit16` (never `submit201`) and no `execute`.
  *  3. A TIMEOUT IS NEVER A FAILURE. The deadline answers 504 `timeout`
  *     ("outcome unknown"), with no `outcome`; a driver reporting a timeout
  *     reports `unknown`/`timeout`, which is not `failed`. Errors keep their
@@ -75,19 +75,24 @@ interface FakeOptions {
 
 interface Seen {
   submits: { cpId: string; op: unknown }[];
+  submits201: { cpId: string; op: unknown }[];
   executes: { cpId: string; op: CsmsOperation16 }[];
   polls: string[];
 }
 
 function fakeDriver(options: FakeOptions = {}): { driver: CsmsDriver; seen: Seen } {
-  const seen: Seen = { submits: [], executes: [], polls: [] };
+  const seen: Seen = { submits: [], submits201: [], executes: [], polls: [] };
   const surface = options.surface ?? true;
   const declare = options.declare ?? surface;
   const polling = options.polling ?? false;
   const commands: CsmsCommands = {
-    async submit(cpId, op) {
+    async submit16(cpId, op) {
       seen.submits.push({ cpId, op });
       return (options.submit ?? (async () => STATES.accepted!))(cpId, op);
+    },
+    async submit201(cpId, op) {
+      seen.submits201.push({ cpId, op });
+      return STATES.accepted!;
     },
     ...((options.implementPoll ?? polling)
       ? {
@@ -497,6 +502,19 @@ for (const [name, outcome] of Object.entries(STATES)) {
     `an undeclared action is 501 even with commands: ${gated.status} ${gated.text}`,
   );
   check(gated.seen.submits.length === 0, "an undeclared action makes no submit");
+
+  // An action valid in both versions routes to the version of the route: the
+  // 1.6 handler calls submit16 and never submit201.
+  for (const [path, body] of [
+    ["clear-charging-profile", {}],
+    ["trigger-message", { requestedMessage: "Heartbeat" }],
+  ] as const) {
+    const amb = await exchange("POST", `/v1/charge-points/CP1/operations/${path}`, body);
+    check(
+      amb.status === 202 && amb.seen.submits.length === 1 && amb.seen.submits201.length === 0,
+      `${path} routes to submit16 only: ${amb.status} ${amb.text} ${amb.seen.submits201.length}`,
+    );
+  }
 }
 
 if (failures.length > 0) {
