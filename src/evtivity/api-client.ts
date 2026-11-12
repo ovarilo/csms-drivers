@@ -112,6 +112,24 @@ function forget(key: string, entry: Promise<Session> | undefined): void {
   }
 }
 
+/**
+ * A COMMAND request abandoned while it was in flight: the driver's own
+ * `dispatchTimeoutMs` ran out, or the caller's signal aborted. The request may
+ * have left and the station may still act, so `commands.submit16` reports it as
+ * `unknown`; `execute` keeps treating it as the {@link CsmsNotDispatchedError}
+ * it extends. A login that times out is never this class: no command was sent.
+ */
+export class CommandWaitInterruptedError extends CsmsNotDispatchedError {
+  constructor(
+    operation: string,
+    reason: string,
+    /** The driver's own deadline passed, rather than the caller aborting. */
+    readonly timedOut: boolean,
+  ) {
+    super(operation, reason);
+  }
+}
+
 /** A `fetch` rejection by a timeout, after the request may have left. */
 function isAbort(err: unknown): boolean {
   return (
@@ -163,8 +181,14 @@ export class EvtivityApi {
     headers: Record<string, string>,
     body: unknown,
     timeoutMs: number,
+    command?: { readonly signal?: AbortSignal },
   ): Promise<RawResponse> {
     const url = `${this.cfg.apiUrl}${path}`;
+    const callerSignal = command?.signal;
+    const signal =
+      callerSignal === undefined
+        ? AbortSignal.timeout(timeoutMs)
+        : AbortSignal.any([AbortSignal.timeout(timeoutMs), callerSignal]);
     let res: Response;
     try {
       res = await this.fetchImpl(url, {
@@ -173,7 +197,7 @@ export class EvtivityApi {
         // JSON.stringify keeps insertion order, which requests.ts relies on
         // for SendLocalList.
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal,
       });
     } catch (err) {
       // A timeout is filed with the requests that never connected: the
@@ -183,6 +207,13 @@ export class EvtivityApi {
         ? `timed out after ${timeoutMs} ms: the request left, and whether the ` +
           `server acted on it is unknown (${reason(err)})`
         : reason(err);
+      if (command !== undefined && isAbort(err)) {
+        throw new CommandWaitInterruptedError(
+          `evtivity: POST ${url}`,
+          why,
+          callerSignal?.aborted !== true,
+        );
+      }
       throw new CsmsNotDispatchedError(`evtivity: POST ${url}`, why);
     }
     // Best-effort: the status is the caller's finding, and a body that will not
@@ -279,6 +310,7 @@ export class EvtivityApi {
     path: string,
     body: unknown,
     timeoutMs: number,
+    signal: AbortSignal | undefined,
   ): Promise<{ res: RawResponse; entry: Promise<Session>; session: Session }> {
     const { session, entry } = await this.session();
     const res = await this.send(
@@ -286,6 +318,7 @@ export class EvtivityApi {
       { authorization: `Bearer ${session.token}` },
       body,
       timeoutMs,
+      { signal },
     );
     return { res, entry, session };
   }
@@ -295,10 +328,15 @@ export class EvtivityApi {
    * renews the session and is sent once more, but only once that session is
    * old enough; see the header.
    */
-  async post(path: string, body: unknown, timeoutMs: number): Promise<RawResponse> {
-    const first = await this.authenticated(path, body, timeoutMs);
+  async post(
+    path: string,
+    body: unknown,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<RawResponse> {
+    const first = await this.authenticated(path, body, timeoutMs, signal);
     if (first.res.status !== 401 || Date.now() < first.session.renewableAt) return first.res;
     forget(this.sessionKey(), first.entry);
-    return (await this.authenticated(path, body, timeoutMs)).res;
+    return (await this.authenticated(path, body, timeoutMs, signal)).res;
   }
 }

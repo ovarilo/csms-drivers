@@ -19,7 +19,7 @@ import {
 import type { CsmsConnectorApi, CsmsDriver, CsmsSessionApi } from "../models.ts";
 import { EvtivityApi } from "./api-client.ts";
 import { DEFAULT_EVTIVITY_DISPATCH_TIMEOUT_MS, type EvtivityConfig } from "./config.ts";
-import { dispatch, type EvtivityRefs } from "./requests.ts";
+import { dispatch, submitOperation, type EvtivityRefs } from "./requests.ts";
 
 export interface EvtivityCsmsDriverOptions {
   readonly config: EvtivityConfig;
@@ -33,6 +33,9 @@ export interface EvtivityCsmsDriverOptions {
  *  payload. */
 export const EVTIVITY_CAPABILITIES: CsmsCapabilities = {
   operations16: new Set(CSMS_OPERATION_16_ACTIONS),
+  // The route blocks until the station answers, so submit16 reads the answer
+  // itself; there is no command to look up afterwards.
+  commands: { completion: "confirmed", polling: false },
 };
 
 /** Creates the reusable EVtivity operation surface, without TCK lifecycle
@@ -49,6 +52,10 @@ export function createEvtivityCsmsDriver(options: EvtivityCsmsDriverOptions): Cs
       async execute(cpId: string, operation: CsmsOperation16): Promise<string> {
         return dispatch(api, cpId, operation, refs, timeoutMs);
       },
+    },
+    commands: {
+      submit16: async (cpId, operation, opts) =>
+        submitOperation(api, cpId, operation, refs, timeoutMs, opts?.signal),
     },
   };
 }

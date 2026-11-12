@@ -11,7 +11,7 @@
  * was measured answering with and from the route's source at v0.1.51
  * (packages/api/src/routes/ocpp-commands.ts, dispatchCommandRaw).
  *
- * PROPERTY, in 11 parts:
+ * PROPERTY, in 12 parts:
  *  1. AN ANSWER IS AN ANSWER. A 200 `{"status":"accepted",...,"response":{...}}`
  *     resolves with the station's payload in the receipt -- a
  *     `"response":{"status":"Rejected"}` included. A 200 without a `response`
@@ -54,6 +54,15 @@
  *     account with different passwords do not share a session: the second
  *     logs in itself, so a wrong password never borrows a valid token, and a
  *     refusal kept for one password does not block a corrected one.
+ * 12. `commands.submit16` reports the station's answer as a VALUE and declares
+ *     { completion: "confirmed", polling: false } with no `poll`. A 200
+ *     Accepted (or any answer but Rejected/NotSupported) is `confirmed` with
+ *     the station's response; Rejected/NotSupported is `rejected`; a station
+ *     CALLERROR (502) is `failed`; an unanswered CALL (504) and the driver's
+ *     own `dispatchTimeoutMs` expiring on a command are `unknown` (`timeout`),
+ *     never `failed`; a caller's abort is `unknown` (`no-evidence`). Whatever
+ *     never became a CALL (202, 404, 400, a refused connect, a login that
+ *     times out) and a 500 still throw as `execute` does.
  *
  * Each row gets its own server URL because the session cache is module-level
  * and keyed by server and account: a shared key would let one row's cached
@@ -943,6 +952,123 @@ function driverWithPassword(url: string, srv: Server, password: string): CsmsDri
     !result.ok && !message(result.err).includes("s3cret-Pa55"),
     `${what}: the failure must not quote the password: ${message(result.err)}`,
   );
+}
+// ---------------------------------------------------------------------------
+// Part 12: commands
+// ---------------------------------------------------------------------------
+
+{
+  const caps = driverFor(freshUrl(), server({})).capabilities.commands;
+  check(
+    caps?.completion === "confirmed" && caps.polling === false,
+    `12: capabilities.commands expected confirmed + no polling, got ${JSON.stringify(caps)}`,
+  );
+  const commands = driverFor(freshUrl(), server({})).commands;
+  check(commands !== undefined && commands.poll === undefined, "12: commands has a poll");
+}
+
+function submit(routes: Routes, dispatchTimeoutMs?: number, signal?: AbortSignal) {
+  const commands = driverFor(freshUrl(), server(routes), dispatchTimeoutMs).commands;
+  check(commands !== undefined, "12: driver.commands is missing");
+  return commands!.submit16("CP1", RESET, signal ? { signal } : undefined);
+}
+
+for (const [what, routes, state] of [
+  ["200 Accepted", { command: [answered({ status: "Accepted" })] }, "confirmed"],
+  ["200 Scheduled", { command: [answered({ status: "Scheduled" })] }, "confirmed"],
+  ["200 Rejected", { command: [answered({ status: "Rejected" })] }, "rejected"],
+  ["200 NotSupported", { command: [answered({ status: "NotSupported" })] }, "rejected"],
+  [
+    "502 CALLERROR",
+    { command: [commandFailed(502, "CALLERROR NotImplemented: raw station refuses Reset")] },
+    "failed",
+  ],
+  [
+    "502 Invalid CALLRESULT",
+    { command: [commandFailed(502, "Invalid CALLRESULT for Reset: schema")] },
+    "failed",
+  ],
+  [
+    "504 unanswered CALL",
+    { command: [commandFailed(504, "Timeout waiting for response to Reset (d4b189bb)")] },
+    "unknown",
+  ],
+] as [string, Routes, string][]) {
+  const out = await submit(routes);
+  check(out.state === state, `12: ${what}: expected ${state}, got ${JSON.stringify(out)}`);
+  check(
+    out.state === "unsupported" || !Number.isNaN(Date.parse(out.at)),
+    `12: ${what}: \`at\` is not an instant`,
+  );
+  if (out.state === "unknown") check(out.cause === "timeout", `12: ${what}: cause ${out.cause}`);
+}
+
+{
+  const out = await submit({ command: [answered({ status: "Accepted" })] });
+  check(
+    out.state === "confirmed" && JSON.stringify(out.response) === '{"status":"Accepted"}',
+    `12: confirmed carries the station's response, got ${JSON.stringify(out)}`,
+  );
+}
+
+{
+  // The driver's own deadline on a command that left: not failed, not thrown.
+  const out = await submit({ command: [HANGS] }, 150);
+  check(
+    out.state === "unknown" && out.cause === "timeout",
+    `12: dispatchTimeoutMs expiry expected unknown/timeout, got ${JSON.stringify(out)}`,
+  );
+  const aborted = await submit({ command: [ABORTED] });
+  check(
+    aborted.state === "unknown" && aborted.cause === "timeout",
+    `12: an aborted wait expected unknown/timeout, got ${JSON.stringify(aborted)}`,
+  );
+  const ac = new AbortController();
+  setTimeout(() => ac.abort(), 80);
+  const byCaller = await submit({ command: [HANGS] }, 5000, ac.signal);
+  check(
+    byCaller.state === "unknown" && byCaller.cause === "no-evidence",
+    `12: a caller's abort expected unknown/no-evidence, got ${JSON.stringify(byCaller)}`,
+  );
+}
+
+for (const [what, routes, expect] of [
+  [
+    "202 COMMAND_QUEUED",
+    { command: [() => json({ code: "COMMAND_QUEUED" }, 202)] },
+    "not-dispatched",
+  ],
+  ["404", { command: [() => json({ code: "NOT_FOUND" }, 404)] }, "not-dispatched"],
+  ["a refused connect", { command: [REFUSED] }, "not-dispatched"],
+  [
+    "502 failed send",
+    { command: [commandFailed(502, "Station offline, command not queued")] },
+    "not-dispatched",
+  ],
+  ["500", { command: [() => json({ code: "INTERNAL_ERROR" }, 500)] }, "plain-error"],
+  ["a refused login", { login: [REFUSED] }, "not-dispatched"],
+] as [string, Routes, Classification][]) {
+  const r = await outcomeOf(submit(routes, 150));
+  const got = r.ok ? "answered" : classify(r.err);
+  check(got === expect, `12: ${what}: expected a ${expect} throw, got ${got}`);
+}
+
+{
+  const r = await outcomeOf(
+    submit({
+      command: [
+        () => json({ code: "OCPP_VERSION_MISMATCH", error: "station speaks ocpp2.0.1" }, 400),
+      ],
+    }),
+  );
+  check(classify(r.err) === "unsupported", "12: a version mismatch expected an unsupported throw");
+}
+
+{
+  const text = JSON.stringify(
+    await submit({ command: [commandFailed(502, "CALLERROR InternalError: x")] }),
+  );
+  check(!text.includes("admin123"), `12: an outcome quotes the password: ${text}`);
 }
 
 if (failures.length > 0) {
