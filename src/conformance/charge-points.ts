@@ -29,7 +29,7 @@ import {
 } from "../charge-points.ts";
 import { UnsupportedOperationError } from "../contracts.ts";
 import type { CsmsDriver } from "../models.ts";
-import { createRecorder, type ConformanceReport } from "./report.ts";
+import { createRecorder, type ConformanceRecorder, type ConformanceReport } from "./report.ts";
 
 /** Every station id the lifecycle may create, and the one it must never find. */
 export const CONFORMANCE_IDS = [
@@ -176,8 +176,6 @@ function exposesPassword(value: unknown): boolean {
 /** Every rule of the suite, in the order a report lists them. */
 export const CHARGE_POINT_RULES: readonly Rule[] = Object.values(RULE);
 
-type Expect = (condition: boolean, rule: Rule) => void;
-
 /**
  * Asks `driver` every charge-point administration rule its declaration makes
  * applicable. A rule that depends on something the driver does not declare --
@@ -186,7 +184,7 @@ type Expect = (condition: boolean, rule: Rule) => void;
  */
 export async function chargePointAdminConformance(driver: CsmsDriver): Promise<ConformanceReport> {
   const recorder = createRecorder(CHARGE_POINT_RULES);
-  const expect: Expect = (condition, rule) => recorder.expect(condition, rule);
+  const { expect } = recorder;
 
   const declared = driver.capabilities.chargePoints;
   const admin = driver.chargePoints;
@@ -208,9 +206,7 @@ export async function chargePointAdminConformance(driver: CsmsDriver): Promise<C
   // A driver that throws where the contract says it resolves is a violation
   // to report, not a crash of the guard.
   try {
-    await exerciseLifecycle(admin, declared, registrations, expect, (rules, reason) =>
-      recorder.skip(rules, reason),
-    );
+    await exerciseLifecycle(admin, declared, registrations, recorder);
     return recorder.report("the suite did not reach this rule");
   } catch (error) {
     const detail = `the lifecycle threw unexpectedly: ${String(error)}`;
@@ -228,9 +224,9 @@ async function exerciseLifecycle(
   admin: CsmsChargePointAdmin,
   capabilities: CsmsChargePointCapabilities,
   registrations: ReadonlySet<ChargePointRegistration>,
-  expect: Expect,
-  skip: (rules: Rule | readonly Rule[], reason: string) => void,
+  recorder: ConformanceRecorder<Rule>,
 ): Promise<void> {
+  const { expect, skip } = recorder;
   const profiles = capabilities.securityProfiles;
   const mode = capabilities.basicAuthPassword ?? "supplied";
   const descriptionRequired = capabilities.description === "required";
