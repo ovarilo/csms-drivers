@@ -18,6 +18,12 @@
  * cached at module level, keyed by server and account, in-flight attempt
  * included, and shared by every client in the process.
  *
+ * THE KEY IS BOUND TO THE CREDENTIAL. It also carries a SHA-256 digest of the
+ * password -- never the password itself -- so a client configured with a
+ * wrong password does not borrow a session another client's right one
+ * opened, and a refusal kept for one password does not block a corrected
+ * one.
+ *
  * A TOKEN OUTLIVED. Two things end a session. The token's JWT `exp` coming
  * within {@link EXPIRY_MARGIN_MS} replaces it before use. And a command
  * answered 401 drops the session -- unless another caller already replaced
@@ -51,6 +57,7 @@
  * caller to classify: the command routes classify their statuses themselves,
  * in requests.ts.
  */
+import { createHash } from "node:crypto";
 import { CsmsNotDispatchedError, type FetchLike } from "../contracts.ts";
 import { preview, reason } from "../shared/http.ts";
 import type { EvtivityConfig } from "./config.ts";
@@ -184,8 +191,11 @@ export class EvtivityApi {
     return { status: res.status, text };
   }
 
+  /** Server, account and a digest of the password -- never the password
+   *  itself. See the header. */
   private sessionKey(): string {
-    return `${this.cfg.apiUrl}|${this.cfg.email}`;
+    const digest = createHash("sha256").update(this.cfg.password).digest("hex");
+    return `${this.cfg.apiUrl}|${this.cfg.email}|${digest}`;
   }
 
   /** The cached session and the cache entry it came from, logging in on

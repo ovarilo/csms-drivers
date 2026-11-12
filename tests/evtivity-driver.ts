@@ -11,7 +11,7 @@
  * was measured answering with and from the route's source at v0.1.51
  * (packages/api/src/routes/ocpp-commands.ts, dispatchCommandRaw).
  *
- * PROPERTY, in 10 parts:
+ * PROPERTY, in 11 parts:
  *  1. AN ANSWER IS AN ANSWER. A 200 `{"status":"accepted",...,"response":{...}}`
  *     resolves with the station's payload in the receipt -- a
  *     `"response":{"status":"Rejected"}` included. A 200 without a `response`
@@ -50,6 +50,10 @@
  *     so a 401 the server keeps sending costs at most one login a minute.
  * 10. A kept login refusal expires after fifteen minutes, so a long-lived
  *     process recovers without a restart.
+ * 11. THE SESSION IS BOUND TO THE CREDENTIAL. Two drivers of one server and
+ *     account with different passwords do not share a session: the second
+ *     logs in itself, so a wrong password never borrows a valid token, and a
+ *     refusal kept for one password does not block a corrected one.
  *
  * Each row gets its own server URL because the session cache is module-level
  * and keyed by server and account: a shared key would let one row's cached
@@ -879,6 +883,67 @@ await withClock(async (move) => {
       (after.ok ? "" : `: ${message(after.err)}`),
   );
 });
+
+// ---------------------------------------------------------------------------
+// Part 11: the session is bound to the credential
+// ---------------------------------------------------------------------------
+
+function driverWithPassword(url: string, srv: Server, password: string): CsmsDriver {
+  return createEvtivityCsmsDriver({
+    config: { apiUrl: url, email: "admin@evtivity.local", password },
+    fetch: srv.fetch,
+  });
+}
+
+{
+  const what = "part 11: a second password does not reuse the first one's session";
+  const url = freshUrl();
+  const srv = server({});
+  const first = await outcomeOf(
+    driverWithPassword(url, srv, "right").operations16.execute("CP1", RESET),
+  );
+  const second = await outcomeOf(
+    driverWithPassword(url, srv, "wrong").operations16.execute("CP1", RESET),
+  );
+  check(first.ok && second.ok, `${what}: ${message(first.err)} / ${message(second.err)}`);
+  check(srv.count.login === 2, `${what}: expected 2 logins, got ${srv.count.login}`);
+}
+
+{
+  const what = "part 11: a refusal kept for one password does not block another";
+  const url = freshUrl();
+  const srv = server({
+    login: [
+      () => json({ error: "Invalid credentials", code: "INVALID_CREDENTIALS" }, 401),
+      LOGIN_OK,
+    ],
+  });
+  const wrong = await outcomeOf(
+    driverWithPassword(url, srv, "wrong").operations16.execute("CP1", RESET),
+  );
+  const right = await outcomeOf(
+    driverWithPassword(url, srv, "right").operations16.execute("CP1", RESET),
+  );
+  check(!wrong.ok, `${what}: the refused password was expected to fail`);
+  check(
+    right.ok && srv.count.login === 2,
+    `${what}: expected the corrected password to log in, got ${srv.count.login} logins` +
+      (right.ok ? "" : `: ${message(right.err)}`),
+  );
+}
+
+{
+  const what = "part 11: the session key carries no raw password";
+  const url = freshUrl();
+  const srv = server({ login: [() => new Response("down", { status: 503 })] });
+  const result = await outcomeOf(
+    driverWithPassword(url, srv, "s3cret-Pa55").operations16.execute("CP1", RESET),
+  );
+  check(
+    !result.ok && !message(result.err).includes("s3cret-Pa55"),
+    `${what}: the failure must not quote the password: ${message(result.err)}`,
+  );
+}
 
 if (failures.length > 0) {
   console.error(failures.map((f) => `FAIL: ${f}`).join("\n"));
