@@ -36,7 +36,7 @@ Tests are plain Bun scripts, not a test runner. Each one collects failures throu
 - **`scripts/boundary.sh`**:
   - every import under `src/` is relative or `node:*`, never a package;
   - every relative specifier names a `.ts` file, which the build rewrites to `.js`: an extensionless or directory specifier does not resolve on Node;
-  - `src/server/` may import only its siblings and `../contracts`, `../models`, `../charge-points`, never a concrete driver.
+  - `src/server/` may import only its siblings and `../contracts`, `../models`, `../charge-points`, never a concrete driver; `src/shared/` follows the same allowlist.
 - Consumers resolve the package with `moduleResolution: bundler` or `nodenext`; `@ovarilo/csms-drivers/tsconfig` exports `tsconfig.base.json` (`bundler`) for them. That base file holds compilerOptions only: an `include` there would resolve inside `node_modules`.
 
 ## Architecture
@@ -55,6 +55,7 @@ Tests are plain Bun scripts, not a test runner. Each one collects failures throu
   - **SteVe** (`src/steve/`) drives the manager UI like a browser: login, CSRF token, form POST, through one shared and locked session (`ui-client.ts`). Charge-point administration also goes through the UI, because SteVe has no REST endpoint for it. CSMS form fields stay in `forms.ts`.
   - **CitrineOS** (`src/citrineos/`) uses the message API. `variant` (`v1`/`v2`) decides what is routable (`variant.ts`); only `v2` exposes `operations201`. It does not implement `chargePoints` yet.
   - **Codetics ev-server-lite** (`src/codetics-ev-server-lite/`) queues every 1.6 operation through the REST command endpoint and polls the command state (`requests.ts` has the state table). Its login is cached per process, server and account, because the server rate-limits signins (`api-client.ts`). Charging profiles come from `refs.chargingProfileByRef`. No `operations201`, no `chargePoints`.
+- **Shared helpers** (`src/shared/`, internal, not exported): `http.ts` holds what every REST-speaking driver does with an answered response (bounded body preview, best-effort error body, answered-body read/parse as plain `Error`s, `Set-Cookie` split). Reuse it rather than copying a helper into a driver. `src/citrineos/http.ts` only re-exports part of it, because `./citrineos/http` is a public subpath.
 - **HTTP adapter** (`src/server/`): `createCsmsHttpHandler(driver, options)` is a stateless `(Request) => Promise<Response>`, documented in `src/server/README.md`.
   - Each request makes at most one driver call.
   - Errors use a deterministic `{"error":{"code","message"}}` envelope.

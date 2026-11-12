@@ -14,6 +14,9 @@
 # (juherr/open-ocpp-tck#156): an allowlist rather than a list of drivers, so a
 # third bundled driver is covered the day it is added. Every relative
 # specifier under src/server/ is a sibling or one of the contract modules.
+#
+# src/shared/ holds internal helpers several drivers import, so it follows the
+# same allowlist: a helper that imported a driver would tie every driver to it.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -44,6 +47,14 @@ server_imports="$(grep -R -n -E "${specifier}\.\.?/" src/server --include='*.ts'
 if [ -n "$server_imports" ]; then
   echo "FAIL: the HTTP adapter imports beyond the generic contract:" >&2
   printf '%s\n' "$server_imports" >&2
+  exit 1
+fi
+
+shared_imports="$(grep -R -n -E "${specifier}\.\.?/" src/shared --include='*.ts' \
+  | grep -v -E "[\"'](\./[^/\"']+|\.\./(contracts|models|charge-points)\.ts)[\"']" || true)"
+if [ -n "$shared_imports" ]; then
+  echo "FAIL: a shared helper imports beyond the generic contract:" >&2
+  printf '%s\n' "$shared_imports" >&2
   exit 1
 fi
 

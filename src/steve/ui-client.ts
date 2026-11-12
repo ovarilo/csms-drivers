@@ -14,6 +14,7 @@
  * is that the CHARGE POINT produces the answer.
  */
 import { CsmsNotDispatchedError, type FetchLike } from "../contracts.ts";
+import { preview, setCookiePairs } from "../shared/http.ts";
 import { pageErrors, readForm } from "./html-form.ts";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -136,14 +137,7 @@ export class SteveUiOps {
   }
 
   private absorbSetCookie(res: Response): void {
-    const values = typeof res.headers.getSetCookie === "function" ? res.headers.getSetCookie() : [];
-    for (const raw of values) {
-      const pair = raw.split(";", 1)[0] ?? "";
-      const idx = pair.indexOf("=");
-      if (idx > 0) {
-        this.cookies.set(pair.slice(0, idx).trim(), pair.slice(idx + 1).trim());
-      }
-    }
+    for (const [name, value] of setCookiePairs(res)) this.cookies.set(name, value);
   }
 
   /**
@@ -380,8 +374,7 @@ async function redirectOrRefusal(res: Response, path: string): Promise<string> {
   }
   if (location) return location;
   const body = await res.text().catch(() => "<unreadable body>");
-  const detail =
-    pageErrors(body) ?? (res.status >= 400 ? body.slice(0, 300) : "no error on the page");
+  const detail = pageErrors(body) ?? (res.status >= 400 ? preview(body) : "no error on the page");
   const refusal = `status ${res.status}: ${detail}`;
   // Any error status -- 4xx refused, 5xx failed -- means the form never
   // became an OCPP CALL, so nothing downstream can be a finding about the

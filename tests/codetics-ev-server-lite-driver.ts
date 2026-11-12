@@ -22,8 +22,9 @@
  *     CANCELLED and QUEUED past the wait are `CsmsNotDispatchedError`. A state
  *     the driver does not know is a plain `Error`.
  *  2. The POST itself. A `fetch` that rejects and a non-2xx are non-dispatches
- *     -- nothing was queued. A 2xx without a command id is a plain `Error`:
- *     the server answered, and what it queued is unknown.
+ *     -- nothing was queued. A 2xx without a command id -- an empty body
+ *     included -- is a plain `Error`: the server answered, and what it queued
+ *     is unknown. So is a 2xx whose body will not read or parse.
  *  3. AFTER AN ACCEPTED POST, A READ FAILURE IS NOT A NON-DISPATCH. A poll that
  *     fails once and then sees SENT resolves; one that keeps failing (a 5xx, a
  *     rejected `fetch`, a body that is not a list) ends in a plain `Error` that
@@ -335,6 +336,36 @@ const POST_CASES: DispatchCase[] = [
     routes: { post: [() => json({ state: "QUEUED" })] },
     expect: "plain-error",
     carries: ["without a command id"],
+  },
+  {
+    what: "a POST answered 200 with an empty body",
+    routes: { post: [() => new Response("", { status: 200 })] },
+    expect: "plain-error",
+    carries: ["without a command id"],
+  },
+  {
+    what: "a POST answered 200 whose body will not read",
+    routes: {
+      post: [
+        () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              pull(controller) {
+                controller.error(new Error("stream reset"));
+              },
+            }),
+            { status: 200 },
+          ),
+      ],
+    },
+    expect: "plain-error",
+    carries: ["answered 200 but its body could not be read", "stream reset"],
+  },
+  {
+    what: "a POST answered 200 with a body that is not JSON",
+    routes: { post: [() => new Response("<html>proxy</html>", { status: 200 })] },
+    expect: "plain-error",
+    carries: ["unparseable body", "<html>proxy"],
   },
 ];
 for (const kase of POST_CASES) await checkDispatch("part 2", kase);
