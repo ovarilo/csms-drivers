@@ -12,6 +12,7 @@
 import {
   createCitrineOsCsmsDriver,
   createSteveCsmsDriver,
+  STEVE_CAPABILITIES,
   UnsupportedOperationError,
 } from "@ovarilo/csms-drivers";
 import type { FetchLike } from "@ovarilo/csms-drivers";
@@ -57,6 +58,10 @@ async function verifySteveFactory(): Promise<void> {
   check(
     driver.capabilities.operations16.has("Reset"),
     "SteVe capability declaration includes its wired operation",
+  );
+  check(
+    driver.capabilities === STEVE_CAPABILITIES,
+    "the package root exports STEVE_CAPABILITIES, the declaration the SteVe factory returns",
   );
   check(
     driver.operations201 === undefined,

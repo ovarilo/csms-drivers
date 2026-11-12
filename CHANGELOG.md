@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Subpath exports for the drivers' building blocks, for adapters that compose their own driver:
   `@ovarilo/csms-drivers/steve/{api-client,ui-client,forms,charge-points}` and
   `@ovarilo/csms-drivers/citrineos/{api-client,config,http,requests,variant}`.
+- `STEVE_CAPABILITIES` is exported from the package root, beside `createSteveCsmsDriver`, as
+  `citrineOsCapabilities` already was.
 
 ### Fixed
 
