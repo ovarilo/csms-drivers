@@ -50,9 +50,9 @@ export function conformanceHolds(report: ConformanceReport): boolean {
 /** Collects the answers of a suite run and turns them into a {@link ConformanceReport}. */
 export interface ConformanceRecorder<R extends string> {
   /** Asks a rule: records it as met or broken. `detail` explains a break. */
-  expect(condition: boolean, rule: R, detail?: string): void;
+  expect(this: void, condition: boolean, rule: R, detail?: string): void;
   /** Marks rules as not applicable, unless they end up asked after all. */
-  skip(rules: R | readonly R[], reason: string): void;
+  skip(this: void, rules: R | readonly R[], reason: string): void;
   /** Records a break that belongs to no declared rule (the suite could not finish):
    *  an extra `failed` entry, beside the rules left `skipped` as unreached. */
   abort(rule: string, detail: string): void;

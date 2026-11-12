@@ -156,11 +156,12 @@ export async function commandsConformance(
       : "poll is implemented but polling is not declared",
   );
 
+  const undeclaredAction = CSMS_OPERATION_16_ACTIONS.find(
+    (a) => !driver.capabilities.operations16.has(a),
+  );
   const undeclaredOp: CsmsOperation16 | undefined =
     fixtures.undeclared ??
-    CSMS_OPERATION_16_ACTIONS.filter((a) => !driver.capabilities.operations16.has(a)).map(
-      (a) => SAMPLE_OPERATIONS_16[a],
-    )[0];
+    (undeclaredAction === undefined ? undefined : SAMPLE_OPERATIONS_16[undeclaredAction]);
   if (undeclaredOp === undefined) {
     recorder.skip(RULE.undeclared, "the driver declares every 1.6 action");
   } else {

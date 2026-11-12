@@ -123,11 +123,13 @@ import {
 import {
   ALL_PROFILES,
   ALL_REGISTRATIONS,
+  CHARGE_POINT_RULES,
   chargePointAdminConformance,
   chargePointAdminViolations,
   rejectsWith,
   RULE,
   securityFor,
+  type ConformanceReport,
   type Rule,
 } from "@ovarilo/csms-drivers/conformance";
 import {
@@ -913,13 +915,13 @@ for (const password of ["supplied", "generated"] as const) {
 // declare is SKIPPED with a reason -- neither passed nor failed -- and every
 // rule lands in exactly one of the three lists.
 {
-  const allRules = Object.values(RULE);
-  const states = (report: Awaited<ReturnType<typeof chargePointAdminConformance>>) => [
+  const allRules = CHARGE_POINT_RULES;
+  const states = (report: ConformanceReport) => [
     ...report.passed,
     ...report.failed.map((failure) => failure.rule),
     ...report.skipped.map((skip) => skip.rule),
   ];
-  const skippedRules = (report: Awaited<ReturnType<typeof chargePointAdminConformance>>) =>
+  const skippedRules = (report: ConformanceReport) =>
     report.skipped.map((skip) => skip.rule as string);
 
   const acceptedOnly = await chargePointAdminConformance(
@@ -1007,7 +1009,7 @@ for (const password of ["supplied", "generated"] as const) {
   );
 }
 const covered = new Set<string>(Object.values(FLAWS).map((flaw) => flaw.refusedFor));
-for (const rule of Object.values(RULE)) {
+for (const rule of CHARGE_POINT_RULES) {
   check(covered.has(rule), `the rule "${rule}" has a flawed copy that breaks it`);
 }
 for (const [name, flaw] of Object.entries(FLAWS)) {
@@ -1412,7 +1414,7 @@ if (failures.length > 0) {
   console.log(
     `Charge-point administration: the reference driver conforms under ${REFERENCE_DECLARATIONS.length} profile ` +
       `and ${REGISTRATION_DECLARATIONS.length} registration declarations, ` +
-      `and each of its ${Object.values(RULE).length} rules has a flawed copy refused for it ` +
+      `and each of its ${CHARGE_POINT_RULES.length} rules has a flawed copy refused for it ` +
       `(${Object.keys(FLAWS).length} copies); the bundled factories declare what they implement, ` +
       `and SteVe keeps the password rule behind its fake manager UI.`,
   );
