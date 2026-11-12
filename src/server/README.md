@@ -220,7 +220,9 @@ content-type: application/json
 `PATCH` answers `204` and changes only the members it names. A `security`
 block replaces the whole block, so moving to profile 0 or 3 discards the
 stored password. `"description": null` clears the description. An unknown id
-answers `404 not_found` and creates nothing.
+answers `404 not_found` and creates nothing. A `security.profile` or
+`registration` the driver does not declare answers
+`501 unsupported_capability`, checked before the id is looked up.
 
 `DELETE /v1/charge-points/CP-1` answers `204`, including for an id that does
 not exist.
@@ -387,7 +389,7 @@ may change.
 | 405 | `method_not_allowed` | The route exists but does not serve this method. The `allow` header names the methods it does serve. |
 | 415 | `unsupported_media_type` | A `POST` or `PATCH` without `Content-Type: application/json`. The driver was not called. |
 | 409 | `conflict` | `create` of an id that already exists. Nothing was changed. |
-| 501 | `unsupported_capability` | The driver does not declare the operation, has no charge-point administration, does not accept the security profile, does not poll command outcomes (`GET /v1/commands/{ref}`), or refused the request as something it cannot express. |
+| 501 | `unsupported_capability` | The driver does not declare the operation, has no charge-point administration, does not accept the security profile or registration status, does not poll command outcomes (`GET /v1/commands/{ref}`), or refused the request as something it cannot express. |
 | 502 | `transport_failure` | The request never reached the CSMS as an operation: the connection failed, the CSMS refused the driver's credentials, or it refused the request before dispatching it. The driver contract has no separate class for an authentication failure, so this code covers it. |
 | 502 | `csms_rejected` | The CSMS answered, but did not do what was asked, for example a form that came back with validation errors. |
 | 504 | `timeout` | The driver call did not finish within `--timeout-ms`. **The outcome is unknown**: the request may still have been dispatched. It carries no `outcome`, and is never to be read as a failure. |

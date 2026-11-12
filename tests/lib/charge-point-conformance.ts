@@ -52,8 +52,8 @@ export const RULE = {
   declaredWhenImplemented:
     "capabilities.chargePoints is declared exactly when chargePoints is implemented",
   declaresAProfile: "a declared admin surface names at least one security profile",
-  registrationsDeclared:
-    "declared registrations are non-empty, contain Accepted and cover every status get returns",
+  registrationsDeclaredShape: "declared registrations are non-empty and contain Accepted",
+  getReturnsDeclaredRegistration: "get returns only a registration the driver declares",
   getMissingIsNull: "get of a missing id is null",
   createStores: "create stores the registration, security profile and description it is given",
   readBackKeepsId: "get returns the id the station was created with",
@@ -148,7 +148,7 @@ export async function chargePointAdminViolations(driver: CsmsDriver): Promise<st
   expect(declared.securityProfiles.size > 0, RULE.declaresAProfile);
   // Absent means all three; present, it is never empty and holds the default.
   const registrations = declared.registrations ?? new Set(ALL_REGISTRATIONS);
-  expect(registrations.size > 0 && registrations.has("Accepted"), RULE.registrationsDeclared);
+  expect(registrations.size > 0 && registrations.has("Accepted"), RULE.registrationsDeclaredShape);
 
   // A driver that throws where the contract says it resolves is a violation
   // to report, not a crash of the guard.
@@ -171,7 +171,10 @@ async function exerciseLifecycle(
     const details = await admin.get(cpId);
     expect(!exposesPassword(details), RULE.passwordWriteOnly);
     // `get` never returns a status the driver does not declare.
-    expect(details === null || registrations.has(details.registration), RULE.registrationsDeclared);
+    expect(
+      details === null || registrations.has(details.registration),
+      RULE.getReturnsDeclaredRegistration,
+    );
     return details;
   };
   // A station that must exist at this point; its absence is a violation

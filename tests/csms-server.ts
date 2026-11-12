@@ -663,6 +663,56 @@ await expectError("get of a missing id", 404, "not_found", () =>
 }
 
 {
+  const ex = await exchange(
+    "POST",
+    "/v1/charge-points",
+    { id: "CP-9", registration: "Pending" },
+    { registrations: ["Accepted", "Pending"] },
+  );
+  check(ex.status === 201, `a create with a declared registration answers 201, got ${ex.status}`);
+  check(
+    Bun.deepEquals(
+      ex.seen.admin,
+      [{ method: "create", args: [{ id: "CP-9", registration: "Pending" }] }],
+      true,
+    ),
+    `a declared registration reaches the driver: ${JSON.stringify(ex.seen.admin)}`,
+  );
+}
+
+{
+  const ex = await exchange(
+    "POST",
+    "/v1/charge-points",
+    { id: "CP-9" },
+    { registrations: ["Accepted"] },
+  );
+  check(ex.status === 201, `a create without a registration answers 201, got ${ex.status}`);
+  check(
+    Bun.deepEquals(ex.seen.admin, [{ method: "create", args: [{ id: "CP-9" }] }], true),
+    `an omitted registration reaches the driver omitted: ${JSON.stringify(ex.seen.admin)}`,
+  );
+}
+
+{
+  const ex = await exchange(
+    "PATCH",
+    "/v1/charge-points/CP-9",
+    { description: "x" },
+    { registrations: ["Accepted"] },
+  );
+  check(ex.status === 204, `an update without a registration answers 204, got ${ex.status}`);
+  check(
+    Bun.deepEquals(
+      ex.seen.admin,
+      [{ method: "update", args: ["CP-9", { description: "x" }] }],
+      true,
+    ),
+    `an update without a registration reaches the driver: ${JSON.stringify(ex.seen.admin)}`,
+  );
+}
+
+{
   const ex = await exchange("DELETE", "/v1/charge-points/CP-9");
   check(ex.status === 204, `delete answers 204, got ${ex.status} (${ex.text})`);
   check(

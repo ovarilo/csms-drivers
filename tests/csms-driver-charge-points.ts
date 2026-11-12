@@ -232,7 +232,7 @@ interface Reference {
 type FlawCase = {
   readonly refusedFor: Rule;
   readonly declares?: readonly ChargePointSecurityProfile[];
-  /** The registrations it declares; omitted means the default (all three, declared). */
+  /** The registrations it declares; omitted declares nothing, which means all three. */
   readonly registrations?: readonly ChargePointRegistration[];
 } & (
   | { readonly admin: (reference: Reference) => Partial<CsmsChargePointAdmin> }
@@ -557,7 +557,7 @@ const FLAWS: Readonly<Record<string, FlawCase>> = {
   },
   // Part 7: the registrations a driver declares.
   "declares-no-registration": {
-    refusedFor: RULE.registrationsDeclared,
+    refusedFor: RULE.registrationsDeclaredShape,
     driver: (driver) => ({
       ...driver,
       capabilities: {
@@ -567,7 +567,7 @@ const FLAWS: Readonly<Record<string, FlawCase>> = {
     }),
   },
   "declares-registrations-without-accepted": {
-    refusedFor: RULE.registrationsDeclared,
+    refusedFor: RULE.registrationsDeclaredShape,
     driver: (driver) => ({
       ...driver,
       capabilities: {
@@ -577,7 +577,7 @@ const FLAWS: Readonly<Record<string, FlawCase>> = {
     }),
   },
   "get-returns-undeclared-registration": {
-    refusedFor: RULE.registrationsDeclared,
+    refusedFor: RULE.getReturnsDeclaredRegistration,
     registrations: ["Accepted"],
     admin: ({ strict }) => ({
       get: async (cpId) => {
