@@ -1052,6 +1052,27 @@ for (const [what, routes, state] of [
   }
 }
 
+// A 504 or 502 whose `error` leaves the CALL's fate open: it may have left.
+for (const [what, error, status, cause] of [
+  ["504 No response within 35s", "No response within 35s", 504, "timeout"],
+  ["502 Connection closed", "Connection closed", 502, "connection-lost"],
+] as [string, string, 502 | 504, string][]) {
+  const out = await submit({ command: [commandFailed(status, error)] });
+  check(
+    out.state === "unknown" && out.cause === cause,
+    `12: ${what} expected unknown/${cause}, got ${JSON.stringify(out)}`,
+  );
+}
+
+for (const [what, error] of [
+  ["502 Timeout waiting to send", "Timeout waiting to send Reset (d4b189bb)"],
+  ["502 translation refusal", "Cannot translate Reset to OCPP 1.6"],
+] as [string, string][]) {
+  const r = await outcomeOf(submit({ command: [commandFailed(502, error)] }));
+  const got = r.ok ? "answered" : classify(r.err);
+  check(got === "not-dispatched", `12: ${what}: expected a not-dispatched throw, got ${got}`);
+}
+
 for (const [what, routes, expect] of [
   [
     "202 COMMAND_QUEUED",
