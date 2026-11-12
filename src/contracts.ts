@@ -1313,7 +1313,7 @@ export type CommandRef = string;
  *
  * - `unsupported`: the CSMS cannot express the command; nothing was sent.
  * - `rejected`: the CSMS or the station refused it (CALLRESULT status
- *   Rejected/NotSupported, a CSMS 4xx).
+ *   Rejected/NotSupported, or the CSMS refusing the request).
  * - `accepted`: dispatched or queued. The station's answer is NOT known.
  * - `confirmed`: the station's CALLRESULT was observed. `response` is the
  *   station's payload, redacted by whoever serves it.
@@ -1358,11 +1358,14 @@ export type CommandOutcomeState = CommandOutcome["state"];
  */
 export interface CsmsCommands {
   /**
-   * Sends the operation and reports what is known. It does NOT throw for a
-   * CSMS or station verdict (see {@link CommandOutcome}); it still throws
-   * {@link UnsupportedOperationError} / {@link CsmsNotDispatchedError} only for
-   * evidence that no OCPP CALL was ever made, and never turns a timeout into
-   * `failed`.
+   * Sends the operation and reports what is known. Every verdict is returned
+   * as a value (see {@link CommandOutcome}): `unsupported`, `rejected`,
+   * `failed` and `unknown` are never thrown, and a timeout is never turned
+   * into `failed`. It throws only when no verdict can be given, an
+   * environment or transport fault before any answer, as a plain `Error`.
+   * {@link UnsupportedOperationError} and {@link CsmsNotDispatchedError} are
+   * `execute` semantics; a driver that still throws them from `submit` is on
+   * a legacy path, which the HTTP handler maps like `execute` (501 and 502).
    */
   submit(
     cpId: string,
