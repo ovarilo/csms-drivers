@@ -3,6 +3,7 @@
 
 import {
   CSMS_OPERATION_16_ACTIONS,
+  type CommandOutcome,
   type CsmsCapabilities,
   type CsmsOperation16,
 } from "../contracts.ts";
@@ -36,6 +37,9 @@ export const STEVE_CAPABILITIES: CsmsCapabilities = {
     // SteVe's form offers all three; declared rather than left to the default.
     registrations: new Set(["Accepted", "Pending", "Rejected"]),
   },
+  // SteVe's task page is not read back: a posted form is dispatched, and the
+  // station's answer is never observed.
+  commands: { completion: "accepted", polling: false },
 };
 
 /**
@@ -44,21 +48,29 @@ export const STEVE_CAPABILITIES: CsmsCapabilities = {
  */
 export function createSteveCsmsDriver(options: SteveCsmsDriverOptions): CsmsDriver {
   const ui = new SteveUiOps(options.config, options.fetch);
+  async function execute(cpId: string, operation: CsmsOperation16): Promise<string> {
+    const reservedTagParent =
+      operation.action === "ReserveNow" &&
+      operation.parentIdTag !== undefined &&
+      options.ocppTagParent
+        ? await options.ocppTagParent(operation.idTag)
+        : undefined;
+    const { opPath, fields } = toSteveForm(operation, { reservedTagParent });
+    return ui.op(opPath, { chargePointSelectList: cpSelect(cpId), ...fields });
+  }
   return {
     capabilities: STEVE_CAPABILITIES,
     ...(options.sessions ? { sessions: options.sessions } : {}),
     ...(options.connectors ? { connectors: options.connectors } : {}),
     chargePoints: steveChargePoints(ui),
-    operations16: {
-      async execute(cpId: string, operation: CsmsOperation16): Promise<string> {
-        const reservedTagParent =
-          operation.action === "ReserveNow" &&
-          operation.parentIdTag !== undefined &&
-          options.ocppTagParent
-            ? await options.ocppTagParent(operation.idTag)
-            : undefined;
-        const { opPath, fields } = toSteveForm(operation, { reservedTagParent });
-        return ui.op(opPath, { chargePointSelectList: cpSelect(cpId), ...fields });
+    operations16: { execute },
+    commands: {
+      // The task SteVe opens is not a handle anything can follow, so there is
+      // no ref. Whatever `execute` throws is thrown here too.
+      async submit16(cpId, operation, opts): Promise<CommandOutcome> {
+        opts?.signal?.throwIfAborted();
+        await execute(cpId, operation);
+        return { state: "accepted", at: new Date().toISOString() };
       },
     },
   };
