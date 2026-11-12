@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the reserved tag's stored parent, which the new `ocppTagParent` option of
   `createSteveCsmsDriver` looks up. SteVe has no field for another parent and sends the stored
   one, so the requested parent used to be dropped silently.
+- SteVe WebAPI (`steve/api-client`): a refused request whose error body cannot be read keeps
+  its method, path and status in the error, with `<unreadable body>` in place of the body,
+  instead of failing with the stream's own error.
 
 ## [0.0.2] - 2026-10-19
 
