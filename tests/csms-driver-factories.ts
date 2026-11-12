@@ -14,6 +14,7 @@ import {
   createSteveCsmsDriver,
   STEVE_CAPABILITIES,
   UnsupportedOperationError,
+  type CommandOutcome,
 } from "@ovarilo/csms-drivers";
 import type { FetchLike } from "@ovarilo/csms-drivers";
 
@@ -229,9 +230,93 @@ async function verifyCitrine16Factory(): Promise<void> {
   check(receipt.includes('"success":true'), "CitrineOS factory returns the confirmation receipt");
 }
 
+/**
+ * `commands` on the accepted-only drivers (SteVe). Neither CSMS
+ * hands back the station's answer, so a successful dispatch is `accepted`,
+ * never `confirmed`, with no ref (nothing to poll) and no `poll`. What
+ * `execute` throws -- a capability gap, a request that never became a CALL --
+ * is still thrown, and the variant decides whether `submit201` exists.
+ */
+async function verifyAcceptedOnlyCommands(): Promise<void> {
+  const config = { baseUrl: "http://steve/manager", username: "operator", password: "secret" };
+  const steveFetch = (resetStatus: number): FetchLike => {
+    return async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/signin") && method === "GET") {
+        return new Response('<input name="_csrf" value="login-token">');
+      }
+      if (url.endsWith("/signin") && method === "POST") return redirect("/manager/home");
+      if (url.endsWith("/operations/v1.6/Reset") && method === "GET") {
+        return new Response('<input name="_csrf" value="operation-token">');
+      }
+      if (url.endsWith("/operations/v1.6/Reset") && method === "POST") {
+        return resetStatus === 302
+          ? redirect("/manager/operations/tasks/42")
+          : new Response("boom", { status: resetStatus });
+      }
+      return new Response("unexpected request", { status: 500 });
+    };
+  };
+  const reset = { action: "Reset" as const, type: "Hard" as const };
+  const shape = (o: CommandOutcome): string =>
+    o.state === "accepted" && !("ref" in o) && !Number.isNaN(Date.parse(o.at))
+      ? "accepted"
+      : JSON.stringify(o);
+  async function thrown(promise: Promise<unknown>): Promise<unknown> {
+    try {
+      await promise;
+      return undefined;
+    } catch (err) {
+      return err;
+    }
+  }
+
+  const steve = createSteveCsmsDriver({ config, fetch: steveFetch(302) });
+  check(
+    steve.capabilities.commands?.completion === "accepted" &&
+      steve.capabilities.commands.polling === false,
+    "SteVe declares commands { completion: accepted, polling: false }",
+  );
+  check(
+    steve.commands?.poll === undefined && steve.commands?.submit201 === undefined,
+    "SteVe commands has neither poll nor submit201",
+  );
+  check(
+    shape((await steve.commands?.submit16("CP-1", reset)) as CommandOutcome) === "accepted",
+    "SteVe submit16 reports an accepted outcome without a ref",
+  );
+  const aborted = new AbortController();
+  aborted.abort();
+  check(
+    (await thrown(steve.commands!.submit16("CP-1", reset, { signal: aborted.signal }))) !==
+      undefined,
+    "SteVe submit16 posts nothing for an already aborted signal",
+  );
+  check(
+    (await thrown(
+      createSteveCsmsDriver({ config, fetch: steveFetch(500) }).commands!.submit16("CP-1", reset),
+    )) instanceof Error,
+    "SteVe submit16 throws what execute throws when the form is not accepted",
+  );
+  check(
+    (await thrown(
+      steve.commands!.submit16("CP-1", {
+        action: "ReserveNow",
+        connectorId: 1,
+        idTag: "T",
+        expiryDate: new Date("2030-01-01T00:00:00Z"),
+        parentIdTag: "P",
+      }),
+    )) instanceof UnsupportedOperationError,
+    "SteVe submit16 throws UnsupportedOperationError for a request it cannot express",
+  );
+}
+
 await verifySteveFactory();
 await verifySteveReserveNowParent();
 await verifyCitrine16Factory();
+await verifyAcceptedOnlyCommands();
 
 if (failures.length > 0) {
   for (const failure of failures) console.error(`FAIL: ${failure}`);
