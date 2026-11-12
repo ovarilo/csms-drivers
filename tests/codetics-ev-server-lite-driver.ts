@@ -16,7 +16,7 @@
  * session is cached per process, and a cached FAILURE is the dangerous half --
  * every later caller inherits it.
  *
- * PROPERTY, in 14 parts:
+ * PROPERTY, in 15 parts:
  *  1. The command states, both directions. SENT, SUCCEEDED and FAILED with a
  *     result are dispatched and resolve. FAILED with no result, TIMED_OUT,
  *     CANCELLED and QUEUED past the wait are `CsmsNotDispatchedError`. A state
@@ -80,6 +80,13 @@
  *     UnsupportedOperationError or a CsmsNotDispatchedError; a refused call
  *     sends no request at all; and no request, answer or error quotes the
  *     admin password.
+ *
+ * 15. A half-made charge point is rolled back. A create whose profile move
+ *     fails, or whose 2xx answer carries no secret, deletes the station again
+ *     and rethrows the original error; when that delete fails too, the same
+ *     error says the station could not be removed (and never quotes a secret).
+ *     An update to profile 1 whose secret rotation fails puts the profile back
+ *     and rethrows the rotation's error.
  *
  * Each row gets its own server URL because the session cache is module-level
  * and keyed by server, account and password: a shared key would let one row's cached
@@ -1247,6 +1254,79 @@ const ADMIN_CONFIG = (apiUrl: string) => ({
     !JSON.stringify(admin.sent).includes("a-password-of-16-chars"),
     "14: no admin request body carries the admin password",
   );
+}
+
+{
+  const admin = fakeCodeticsAdmin();
+  const driver = createCodeticsEvServerLiteCsmsDriver({
+    config: ADMIN_CONFIG(freshUrl()),
+    fetch: admin.fetch,
+    allowUnauthenticated: true,
+  });
+  const cp = driver.chargePoints!;
+  const fail = (run: () => Promise<unknown>): Promise<unknown> =>
+    run().then(
+      () => null,
+      (e: unknown) => e,
+    );
+  const deletes = (id: string): number =>
+    admin.sent.filter((r) => r.method === "DELETE" && r.path.endsWith(`/stations/${id}`)).length;
+
+  // create: the profile move fails, the station is deleted again.
+  admin.faults.security = true;
+  let err = await fail(() => cp.create({ id: "R1", security: { profile: 0 }, description: "d" }));
+  check(
+    err instanceof Error && err.message.includes("500"),
+    `15: a failed profile move rethrows the original error: ${message(err)}`,
+  );
+  check(deletes("R1") === 1, "15: a failed profile move sends a DELETE");
+  check(!admin.stations.has("R1"), "15: a failed profile move leaves no station behind");
+
+  // create: the rollback itself fails, the error says so.
+  admin.faults.delete = true;
+  err = await fail(() => cp.create({ id: "R2", security: { profile: 0 }, description: "d" }));
+  check(
+    err instanceof Error &&
+      err.message.includes("500") &&
+      err.message.includes("station R2 could not be removed"),
+    `15: a failed rollback is surfaced: ${message(err)}`,
+  );
+  check(admin.stations.has("R2"), "15: the station a failed rollback could not remove is there");
+  check(
+    !message(err).includes(admin.stations.get("R2")!.secret),
+    "15: a failed rollback never quotes the secret",
+  );
+  admin.faults.delete = false;
+  admin.faults.security = false;
+  admin.stations.delete("R2");
+
+  // create: a 2xx without a secret is rolled back as well, on any profile.
+  admin.faults.omitSecret = true;
+  for (const security of [{ profile: 0 }, { profile: 1 }] as const) {
+    const profile = security.profile;
+    const id = `R3-${profile}`;
+    err = await fail(() => cp.create({ id, security, description: "d" }));
+    check(
+      err instanceof Error && err.message.includes("without a secret"),
+      `15: profile ${profile}: a 2xx without a secret is an error: ${message(err)}`,
+    );
+    check(!admin.stations.has(id), `15: profile ${profile}: a 2xx without a secret is rolled back`);
+  }
+  admin.faults.omitSecret = false;
+
+  // update to profile 1: the rotation fails, the profile goes back.
+  await cp.create({ id: "R4", security: { profile: 0 }, description: "d" });
+  admin.faults.secret = true;
+  err = await fail(() => cp.update("R4", { security: { profile: 1 } }));
+  check(
+    err instanceof Error && err.message.includes("500"),
+    `15: a failed rotation rethrows the original error: ${message(err)}`,
+  );
+  check(
+    admin.stations.get("R4")?.securityProfile === 0,
+    "15: a failed rotation puts the previous profile back",
+  );
+  admin.faults.secret = false;
 }
 
 if (failures.length > 0) {

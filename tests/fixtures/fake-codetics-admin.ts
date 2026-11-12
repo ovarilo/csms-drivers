@@ -37,6 +37,17 @@ export interface FakeCodeticsAdmin {
   readonly active: Set<string>;
   /** Every admin request, signin and csrf excluded. */
   readonly sent: FakeCodeticsAdminSent[];
+  /** Faults to inject; each is off until a test turns it on. */
+  readonly faults: {
+    /** `PUT .../security` answers 500 without changing the profile. */
+    security: boolean;
+    /** `POST .../secret` answers 500 without rotating. */
+    secret: boolean;
+    /** `POST /stations` answers 201 with the station made but no secret. */
+    omitSecret: boolean;
+    /** `DELETE` answers 500 and removes nothing. */
+    delete: boolean;
+  };
 }
 
 function json(value: unknown, status = 200, headers: Record<string, string> = {}): Response {
@@ -47,6 +58,7 @@ export function fakeCodeticsAdmin(): FakeCodeticsAdmin {
   const stations = new Map<string, FakeStation>();
   const active = new Set<string>();
   const sent: FakeCodeticsAdminSent[] = [];
+  const faults = { security: false, secret: false, omitSecret: false, delete: false };
   let secrets = 0;
   const newSecret = (): string => `generated-secret-${++secrets}`;
   const read = (s: FakeStation): Record<string, unknown> => ({
@@ -79,7 +91,7 @@ export function fakeCodeticsAdmin(): FakeCodeticsAdmin {
       if (stations.has(id)) return json({ error: "exists" }, 409);
       const secret = newSecret();
       stations.set(id, { id, name: fields.name, enabled: true, securityProfile: 1, secret });
-      return json({ id, secret }, 201);
+      return json(faults.omitSecret ? { id } : { id, secret }, 201);
     }
 
     const match = /^\/api\/v1\/stations\/([^/]+)(\/security|\/secret)?$/.exec(path);
@@ -99,21 +111,24 @@ export function fakeCodeticsAdmin(): FakeCodeticsAdmin {
       return json(read(station));
     }
     if (match[2] === undefined && method === "DELETE") {
+      if (faults.delete) return json({ error: "boom" }, 500);
       if (active.has(id)) return json({ error: "active session" }, 409);
       stations.delete(id);
       return new Response(null, { status: 204 });
     }
     if (match[2] === "/security" && method === "PUT") {
+      if (faults.security) return json({ error: "boom" }, 500);
       if (fields.sendToStation !== false) return json({ error: "station not connected" }, 409);
       if (typeof fields.securityProfile !== "number") return json({ error: "profile" }, 400);
       station.securityProfile = fields.securityProfile;
       return new Response(null, { status: 204 });
     }
     if (match[2] === "/secret" && method === "POST") {
+      if (faults.secret) return json({ error: "boom" }, 500);
       station.secret = newSecret();
       return json({ id, secret: station.secret });
     }
     return json({ error: `unexpected ${method} ${path}` }, 404);
   };
-  return { fetch: fetchImpl, stations, active, sent };
+  return { fetch: fetchImpl, stations, active, sent, faults };
 }
