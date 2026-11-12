@@ -95,6 +95,10 @@ function methodNotAllowed(allowed: string): never {
   });
 }
 
+function unsupported(message: string): CsmsHttpError {
+  return new CsmsHttpError(501, "unsupported_capability", message);
+}
+
 function notFound(what: string): never {
   throw new CsmsHttpError(404, "not_found", what);
 }
@@ -138,9 +142,7 @@ async function readBody(request: Request): Promise<unknown> {
  *  accept is refused here, whatever the driver would have done. */
 function checkProfile(profile: number | undefined, declared: ReadonlySet<number>): void {
   if (profile !== undefined && !declared.has(profile)) {
-    throw new CsmsHttpError(
-      501,
-      "unsupported_capability",
+    throw unsupported(
       `security profile ${profile} is not one this driver accepts (${[...declared].join(", ")})`,
     );
   }
@@ -159,9 +161,7 @@ function checkRegistration(
   declared: ReadonlySet<ChargePointRegistration>,
 ): void {
   if (registration !== undefined && !declared.has(registration)) {
-    throw new CsmsHttpError(
-      501,
-      "unsupported_capability",
+    throw unsupported(
       `registration ${registration} is not one this driver accepts (${sortedRegistrations(declared).join(", ")})`,
     );
   }
@@ -187,16 +187,12 @@ function checkPasswordMode(
   if (security === undefined || (security.profile !== 1 && security.profile !== 2)) return;
   const supplied = suppliedBasicAuthPassword(security) !== undefined;
   if (mode === "generated" && supplied) {
-    throw new CsmsHttpError(
-      501,
-      "unsupported_capability",
+    throw unsupported(
       "this driver generates the Basic Auth password: send security without basicAuthPassword",
     );
   }
   if (mode === "supplied" && !supplied) {
-    throw new CsmsHttpError(
-      501,
-      "unsupported_capability",
+    throw unsupported(
       "this driver does not generate the Basic Auth password: send security.basicAuthPassword",
     );
   }
@@ -306,11 +302,7 @@ export function createCsmsHttpHandler(
 
   function requireAdmin(): NonNullable<typeof admin> {
     if (!admin) {
-      throw new CsmsHttpError(
-        501,
-        "unsupported_capability",
-        "this driver has no charge-point administration",
-      );
+      throw unsupported("this driver has no charge-point administration");
     }
     return admin;
   }
@@ -335,11 +327,7 @@ export function createCsmsHttpHandler(
       if (sub !== undefined) noRoute();
       if (method !== "GET") methodNotAllowed("GET");
       if (!commands?.poll) {
-        throw new CsmsHttpError(
-          501,
-          "unsupported_capability",
-          "this driver does not report command outcomes by polling",
-        );
+        throw unsupported("this driver does not report command outcomes by polling");
       }
       const poll = commands.poll;
       const outcome = await call(() => poll(cpId));
@@ -393,12 +381,14 @@ export function createCsmsHttpHandler(
         checkProfile(update.security?.profile, declared);
         checkRegistration(update.registration, registrations);
         checkPasswordMode(update.security, basicAuthPassword);
-        if (description === "required" && update.description !== undefined) {
-          if (isBlank(update.description)) {
-            throw new InvalidInputError(
-              "body.description must not be cleared or blank: this driver requires one",
-            );
-          }
+        if (
+          description === "required" &&
+          update.description !== undefined &&
+          isBlank(update.description)
+        ) {
+          throw new InvalidInputError(
+            "body.description must not be cleared or blank: this driver requires one",
+          );
         }
         const provisioned = await call(() => chargePoints.update(cpId, update));
         const generated = encodeChargePointProvisioned(provisioned);
@@ -413,11 +403,7 @@ export function createCsmsHttpHandler(
     if (!action) notFound(`no OCPP 1.6 operation is served at '${operationPath}'`);
     if (method !== "POST") methodNotAllowed("POST");
     if (!capabilities.operations16.has(action)) {
-      throw new CsmsHttpError(
-        501,
-        "unsupported_capability",
-        `this driver does not declare ${action}`,
-      );
+      throw unsupported(`this driver does not declare ${action}`);
     }
     const operation = decodeOperation16(action, await readBody(request));
     const accepted = { chargePointId: cpId, operation: operationPath, action };
