@@ -268,6 +268,18 @@ for (const variant of ["v1", "v2"] as const) {
     `declared 2.0.1 without an implementation fails: ${failedRules(hollow).join(",")}`,
   );
   check(!hollow.passed.includes(R201("Reset")), "a missing implementation never passes its action");
+  check(
+    CSMS_OPERATION_201_ACTIONS.every((a) => !hollow.passed.includes(R201(a))),
+    "no 2.0.1 rule passes for a driver declaring operations201 it does not implement",
+  );
+  check(
+    hollow.skipped.some(
+      (s) =>
+        s.rule === R201("SetNetworkProfile") &&
+        s.reason === "the driver implements no operations201",
+    ),
+    "an undeclared 2.0.1 action is skipped with the missing-implementation reason",
+  );
 }
 
 // 3. Skipped is not passed ------------------------------------------------------
@@ -378,8 +390,12 @@ function commandsDriver(options: FakeCommands = {}): {
   const { driver, fixtures } = commandsDriver();
   const report = await commandsConformance(driver, fixtures);
   check(
-    conformanceHolds(report) && report.skipped.length === 0 && report.passed.length > 8,
-    `a correct commands driver is green and fully asked: ${JSON.stringify(report)}`,
+    conformanceHolds(report) &&
+      report.skipped.length === 1 &&
+      report.skipped[0]?.rule ===
+        "a driver declaring completion accepted never reports confirmed" &&
+      report.passed.length > 8,
+    `a correct commands driver is green and asks everything but the accepted-completion rule: ${JSON.stringify(report)}`,
   );
 }
 
@@ -527,6 +543,19 @@ function commandsDriver(options: FakeCommands = {}): {
   check(
     failedRules(undeclaredReport).some((r) => r.includes("poll is implemented exactly when")),
     "poll implemented without declared polling is red",
+  );
+}
+
+{
+  const confirmed = commandsDriver();
+  const report = await commandsConformance(confirmed.driver, confirmed.fixtures);
+  const rule = "a driver declaring completion accepted never reports confirmed";
+  check(
+    !report.passed.includes(rule) &&
+      report.skipped.some(
+        (s) => s.rule === rule && s.reason === "the driver declares completion confirmed",
+      ),
+    "completionHolds is skipped, not passed, for a driver declaring completion confirmed",
   );
 }
 

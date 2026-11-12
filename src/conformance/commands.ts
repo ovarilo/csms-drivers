@@ -198,11 +198,15 @@ export async function commandsConformance(
         `the ${name} scenario answered ${outcome.state}${cause ? ` (cause ${cause})` : ""}, expected ${state}${name === "timeout" ? " with cause timeout" : ""}`,
       );
     }
-    recorder.expect(
-      !(declared.completion === "accepted" && outcome.state === "confirmed"),
-      RULE.completionHolds,
-      `the ${name} scenario answered confirmed although completion is declared accepted`,
-    );
+    if (declared.completion === "accepted") {
+      recorder.expect(
+        outcome.state !== "confirmed",
+        RULE.completionHolds,
+        `the ${name} scenario answered confirmed although completion is declared accepted`,
+      );
+    } else {
+      recorder.skip(RULE.completionHolds, "the driver declares completion confirmed");
+    }
     if ("ref" in outcome && outcome.ref !== undefined) refs.push(outcome.ref);
   }
   if (submitted === 0) {

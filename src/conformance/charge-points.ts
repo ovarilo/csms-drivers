@@ -154,7 +154,13 @@ export async function chargePointAdminConformance(driver: CsmsDriver): Promise<C
   const admin = driver.chargePoints;
   expect((declared === undefined) === (admin === undefined), RULE.declaredWhenImplemented);
   if (declared === undefined || admin === undefined) {
-    return recorder.report("the driver declares no charge-point administration surface");
+    return recorder.report(
+      declared === undefined && admin === undefined
+        ? "the driver declares no charge-point administration surface"
+        : declared === undefined
+          ? "the admin surface is implemented but not declared"
+          : "the admin surface is declared but not implemented",
+    );
   }
   expect(declared.securityProfiles.size > 0, RULE.declaresAProfile);
   // Absent means all three; present, it is never empty and holds the default.

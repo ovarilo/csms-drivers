@@ -183,12 +183,21 @@ export async function operationsConformance(
         continue;
       }
       const declared = declared201?.has(action) ?? false;
-      const problem =
-        operations201 === undefined
-          ? declared
-            ? "declared in capabilities, but the driver implements no operations201"
-            : undefined
-          : disagreement(declared, await attempt(() => operations201.execute(cpId, op)));
+      if (operations201 === undefined) {
+        // Nothing to execute: a declared action is a violation, an undeclared
+        // one was never asked, so it is skipped, not passed.
+        if (declared) {
+          recorder.expect(
+            false,
+            rule201(action),
+            "declared in capabilities, but the driver implements no operations201",
+          );
+        } else {
+          recorder.skip(rule201(action), "the driver implements no operations201");
+        }
+        continue;
+      }
+      const problem = disagreement(declared, await attempt(() => operations201.execute(cpId, op)));
       recorder.expect(problem === undefined, rule201(action), problem);
     }
   }

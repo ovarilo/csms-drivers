@@ -703,6 +703,21 @@ for (const registrations of REGISTRATION_DECLARATIONS) {
     capabilities: { operations16: new Set() },
     operations16: { execute: async () => "" },
   });
+  const hollowSurface = await chargePointAdminConformance({
+    capabilities: {
+      operations16: new Set(),
+      chargePoints: { securityProfiles: new Set([0]) },
+    },
+    operations16: { execute: async () => "" },
+  });
+  check(
+    hollowSurface.failed.some((failure) => failure.rule === RULE.declaredWhenImplemented) &&
+      hollowSurface.skipped.length > 0 &&
+      hollowSurface.skipped.every(
+        (skip) => skip.reason === "the admin surface is declared but not implemented",
+      ),
+    "a declared but unimplemented admin surface skips with its own reason",
+  );
   check(
     noSurface.failed.length === 0 &&
       noSurface.passed.length === 1 &&
