@@ -30,6 +30,11 @@ const exportsMap = {
     types: "./dist/server/index.d.ts",
     default: "./dist/server/index.js",
   },
+  "./conformance": {
+    bun: "./src/conformance/index.ts",
+    types: "./dist/conformance/index.d.ts",
+    default: "./dist/conformance/index.js",
+  },
   "./tsconfig": "./tsconfig.base.json",
   "./package.json": "./package.json",
 };
@@ -40,10 +45,13 @@ const complete = [
   "tsconfig.base.json",
   "src/index.ts",
   "src/server/index.ts",
+  "src/conformance/index.ts",
   "dist/index.d.ts",
   "dist/index.js",
   "dist/server/index.d.ts",
   "dist/server/index.js",
+  "dist/conformance/index.d.ts",
+  "dist/conformance/index.js",
 ];
 
 // 1. Export targets.

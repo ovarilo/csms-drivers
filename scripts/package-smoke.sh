@@ -60,6 +60,7 @@ EOF
 cat >"$work/app/consumer.mjs" <<'EOF'
 import { createCitrineOsCsmsDriver, UnsupportedOperationError } from "@ovarilo/csms-drivers";
 import { createCsmsHttpHandler } from "@ovarilo/csms-drivers/server";
+import { chargePointAdminConformance } from "@ovarilo/csms-drivers/conformance";
 
 const requests = [];
 const fetch = async (input, init) => {
@@ -85,7 +86,14 @@ const handler = createCsmsHttpHandler(driver, { about: { id: "citrineos", displa
 const about = await handler(new Request("http://localhost/v1/driver"));
 if (about.status !== 200) throw new Error(`server: GET /v1/driver answered ${about.status}`);
 
-console.log(`${process.versions.bun ? `Bun ${process.versions.bun}` : `Node ${process.version}`}: the driver and the server work from the installed package.`);
+// The conformance suite runs from the installed package: a driver without an
+// admin surface passes the declaration rule and skips every other.
+const report = await chargePointAdminConformance(driver);
+if (report.failed.length !== 0 || report.passed.length !== 1 || report.skipped.length < 1) {
+  throw new Error(`conformance: unexpected report ${JSON.stringify(report)}`);
+}
+
+console.log(`${process.versions.bun ? `Bun ${process.versions.bun}` : `Node ${process.version}`}: the driver, the server and the conformance suite work from the installed package.`);
 EOF
 (cd "$work/app" && "${node26[@]}" consumer.mjs)
 (cd "$work/app" && bun consumer.mjs)
@@ -124,6 +132,7 @@ EOF
 cat >"$work/app/consumer.ts" <<'EOF'
 import { createSteveCsmsDriver, type CsmsDriver, type FetchLike } from "@ovarilo/csms-drivers";
 import { createCsmsHttpHandler, type CsmsHttpHandler } from "@ovarilo/csms-drivers/server";
+import { chargePointAdminConformance, type ConformanceReport } from "@ovarilo/csms-drivers/conformance";
 
 const fetch: FetchLike = async () => new Response("");
 const driver: CsmsDriver = createSteveCsmsDriver({
@@ -131,7 +140,8 @@ const driver: CsmsDriver = createSteveCsmsDriver({
   fetch,
 });
 const handler: CsmsHttpHandler = createCsmsHttpHandler(driver, { about: { id: "steve", displayName: "SteVe" } });
-export { handler };
+const conformance: Promise<ConformanceReport> = chargePointAdminConformance(driver);
+export { handler, conformance };
 EOF
 cat >"$work/app/tsconfig.json" <<'EOF'
 {
@@ -153,4 +163,4 @@ if ! "$repo_root/node_modules/.bin/tsc" -p "$work/app/tsconfig.json"; then
   exit 1
 fi
 
-echo "Package: installs without devDependencies; the driver and the server run on Node 26 and Bun; every subpath loads on both; declarations resolve under nodenext."
+echo "Package: installs without devDependencies; the driver, the server and the conformance suite run on Node 26 and Bun; every subpath loads on both; declarations resolve under nodenext."
