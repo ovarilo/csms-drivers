@@ -51,6 +51,7 @@ export function createCitrineOsCsmsDriver(options: CitrineOsCsmsDriverOptions): 
     const request = await toCitrineRequest(operation, options.refs, options.config.variant);
     return api.send(cpId, request);
   };
+  const v2 = speaksOcpp201(options.config.variant);
   const execute201 = async (cpId: string, operation: CsmsOperation201): Promise<string> =>
     api.send(cpId, toCitrineRequest201(operation, options.config.variant));
   return {
@@ -58,7 +59,7 @@ export function createCitrineOsCsmsDriver(options: CitrineOsCsmsDriverOptions): 
     ...(options.sessions ? { sessions: options.sessions } : {}),
     ...(options.connectors ? { connectors: options.connectors } : {}),
     operations16: { execute: execute16 },
-    ...(speaksOcpp201(options.config.variant) ? { operations201: { execute: execute201 } } : {}),
+    ...(v2 ? { operations201: { execute: execute201 } } : {}),
     // Accepted-only: what `execute` throws is thrown here too, and `submit201`
     // exists exactly when `operations201` does.
     commands: {
@@ -67,7 +68,7 @@ export function createCitrineOsCsmsDriver(options: CitrineOsCsmsDriverOptions): 
         await execute16(cpId, operation);
         return accepted();
       },
-      ...(speaksOcpp201(options.config.variant)
+      ...(v2
         ? {
             async submit201(
               cpId: string,

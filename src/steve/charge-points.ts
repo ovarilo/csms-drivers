@@ -48,9 +48,9 @@ import {
   ChargePointNotFoundError,
   type ChargePointDetails,
   type ChargePointSecurity,
-  suppliedBasicAuthPassword,
   type ChargePointSecurityProfile,
   type CsmsChargePointAdmin,
+  suppliedBasicAuthPassword,
 } from "../charge-points.ts";
 import { CsmsNotDispatchedError, UnsupportedOperationError } from "../contracts.ts";
 import {

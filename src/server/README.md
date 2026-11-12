@@ -395,7 +395,7 @@ accepted-only: their `outcome` never goes past `accepted`.
 No idempotency key is offered, so a retry is a second command.
 
 - `unknown`, `504 timeout` and `connection-lost` leave it open whether the
-  first command took effect. If the driver `polling`, poll the `ref` first
+  first command took effect. If the driver has `polling`, poll the `ref` first
   (when there is one) and retry only on a verdict that says it did not run.
 - Retry blind only an idempotent operation: `Reset`, `ChangeAvailability`,
   `ChangeConfiguration`, `ClearCache`, `TriggerMessage`, `UnlockConnector`
