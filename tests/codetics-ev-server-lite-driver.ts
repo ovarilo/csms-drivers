@@ -16,7 +16,7 @@
  * session is cached per process, and a cached FAILURE is the dangerous half --
  * every later caller inherits it.
  *
- * PROPERTY, in 11 parts:
+ * PROPERTY, in 12 parts:
  *  1. The command states, both directions. SENT, SUCCEEDED and FAILED with a
  *     result are dispatched and resolve. FAILED with no result, TIMED_OUT,
  *     CANCELLED and QUEUED past the wait are `CsmsNotDispatchedError`. A state
@@ -58,6 +58,14 @@
  *     password on the same server and account signs in itself rather than
  *     borrowing the session, and a refusal kept for a wrong password does not
  *     block a corrected one. The refusal never quotes the password.
+ * 12. `commands` reports the same states as VALUES: QUEUED past the wait is
+ *     `accepted`, SUCCEEDED `confirmed` (or `rejected` when the station
+ *     answered Rejected/NotSupported), FAILED with a result `failed`, SENT
+ *     that never resolves within the wait `unknown` (`timeout`), never
+ *     `failed`. `ref` is the command id, `poll` reads it back and answers
+ *     `null` for a ref the list does not show. A request that never became a
+ *     CALL still throws exactly as `execute` does, and no outcome quotes the
+ *     password or the bearer token. `execute` is untouched.
  *
  * Each row gets its own server URL because the session cache is module-level
  * and keyed by server, account and password: a shared key would let one row's cached
@@ -867,6 +875,178 @@ function driverWithPassword(url: string, srv: Server, password: string): CsmsDri
     !wrong.ok && !message(wrong.err).includes("a-wrong-password"),
     `${what}: the refusal message quotes the password: ${message(wrong.err)}`,
   );
+}
+// ---------------------------------------------------------------------------
+// Part 12: commands
+// ---------------------------------------------------------------------------
+
+function commandsOf(srv: Server, dispatchTimeoutMs = 400) {
+  const commands = driverFor(freshUrl(), srv, dispatchTimeoutMs).commands;
+  check(commands !== undefined, "12: driver.commands is missing");
+  return commands!;
+}
+
+{
+  const caps = driverFor(freshUrl(), server({})).capabilities.commands;
+  check(
+    caps?.completion === "confirmed" && caps.polling === true,
+    `12: capabilities.commands expected confirmed + polling, got ${JSON.stringify(caps)}`,
+  );
+}
+
+interface OutcomeCase {
+  readonly what: string;
+  readonly poll: Handler[];
+  readonly state: string;
+  readonly cause?: string;
+}
+
+const OUTCOME_CASES: OutcomeCase[] = [
+  { what: "QUEUED past the wait", poll: [row("QUEUED")], state: "accepted" },
+  {
+    what: "SUCCEEDED",
+    poll: [row("SUCCEEDED", { status: "Accepted" })],
+    state: "confirmed",
+  },
+  {
+    what: "SUCCEEDED, Rejected",
+    poll: [row("SUCCEEDED", { status: "Rejected" })],
+    state: "rejected",
+  },
+  {
+    what: "SUCCEEDED, NotSupported",
+    poll: [row("SUCCEEDED", { status: "NotSupported" })],
+    state: "rejected",
+  },
+  {
+    what: "FAILED with a CALLERROR",
+    poll: [row("FAILED", { errorCode: "InternalError" })],
+    state: "failed",
+  },
+  { what: "SENT, never answered", poll: [row("SENT")], state: "unknown", cause: "timeout" },
+  {
+    what: "SENT, then the server's own TIMED_OUT",
+    poll: [row("SENT"), row("TIMED_OUT")],
+    state: "unknown",
+    cause: "timeout",
+  },
+  {
+    what: "QUEUED then SENT then SUCCEEDED",
+    poll: [row("QUEUED"), row("SENT"), row("SUCCEEDED", { status: "Accepted" })],
+    state: "confirmed",
+  },
+];
+
+for (const kase of OUTCOME_CASES) {
+  const what = `12: submit16 ${kase.what}`;
+  const out = await commandsOf(server({ poll: kase.poll }), 600).submit16("CP1", RESET);
+  check(out.state === kase.state, `${what}: expected ${kase.state}, got ${JSON.stringify(out)}`);
+  if (out.state === "unknown") {
+    check(out.cause === kase.cause, `${what}: expected cause ${kase.cause}, got ${out.cause}`);
+  }
+  if (out.state !== "unsupported") {
+    check(!Number.isNaN(Date.parse(out.at)), `${what}: \`at\` is not an instant: ${out.at}`);
+  }
+  if (out.state !== "unsupported" && out.state !== "rejected") {
+    check(out.ref === "cmd-1", `${what}: expected ref cmd-1, got ${out.ref}`);
+  }
+}
+
+{
+  const out = await commandsOf(
+    server({ poll: [row("SUCCEEDED", { status: "Accepted" })] }),
+  ).submit16("CP1", RESET);
+  check(
+    out.state === "confirmed" && JSON.stringify(out.response) === '{"status":"Accepted"}',
+    `12: confirmed carries the station's result, got ${JSON.stringify(out)}`,
+  );
+}
+
+for (const [what, routes, expect] of [
+  ["FAILED with no result", { poll: [row("FAILED")] }, "not-dispatched"],
+  ["CANCELLED", { poll: [row("CANCELLED")] }, "not-dispatched"],
+  ["TIMED_OUT with no SENT observed", { poll: [row("TIMED_OUT")] }, "not-dispatched"],
+  ["a refused POST", { post: [unavailable()] }, "not-dispatched"],
+] as [string, Routes, Classification][]) {
+  const r = await outcomeOf(commandsOf(server(routes)).submit16("CP1", RESET));
+  const got = r.ok ? "dispatched" : classify(r.err);
+  check(got === expect, `12: submit16 ${what}: expected a ${expect} throw, got ${got}`);
+}
+
+{
+  const srv = server({});
+  const r = await outcomeOf(
+    commandsOf(srv).submit16("CP1", { action: "GetConfiguration", keys: ["A"] }),
+  );
+  check(
+    classify(r.err) === "unsupported" && srv.count.post === 0,
+    `12: a GetConfiguration key list expected an unsupported throw and no POST, got ${classify(r.err)} / ${srv.count.post} POSTs`,
+  );
+}
+
+{
+  // A command that is queued but whose state cannot be read is not a verdict
+  // on the wire: no evidence, with the ref to poll later.
+  const out = await commandsOf(server({ poll: [unavailable()] }), 300).submit16("CP1", RESET);
+  check(
+    out.state === "unknown" && out.cause === "no-evidence" && out.ref === "cmd-1",
+    `12: an unreadable state expected unknown/no-evidence, got ${JSON.stringify(out)}`,
+  );
+}
+
+{
+  const ac = new AbortController();
+  const srv = server({ poll: [row("SENT")] });
+  setTimeout(() => ac.abort(), 100);
+  const out = await commandsOf(srv, 5000).submit16("CP1", RESET, { signal: ac.signal });
+  check(
+    out.state === "unknown" && out.cause === "no-evidence",
+    `12: an aborted wait after dispatch expected unknown, got ${JSON.stringify(out)}`,
+  );
+}
+
+{
+  const commands = commandsOf(
+    server({ poll: [row("SUCCEEDED", { status: "Accepted" }), row("SENT"), row("FAILED", {})] }),
+  );
+  const polled = await commands.poll?.("cmd-1");
+  check(polled?.state === "confirmed", `12: poll of a known ref, got ${JSON.stringify(polled)}`);
+  const missing = await commandsOf(server({})).poll?.("never-queued");
+  check(
+    missing === null,
+    `12: poll of an unknown ref expected null, got ${JSON.stringify(missing)}`,
+  );
+  const pending = await commandsOf(server({ poll: [row("SENT")] })).poll?.("cmd-1");
+  check(
+    pending?.state === "accepted",
+    `12: poll of SENT expected accepted, got ${JSON.stringify(pending)}`,
+  );
+  const timedOut = await commandsOf(server({ poll: [row("TIMED_OUT")] })).poll?.("cmd-1");
+  check(
+    timedOut?.state === "unknown" && timedOut.cause === "timeout",
+    `12: poll of TIMED_OUT expected unknown/timeout, got ${JSON.stringify(timedOut)}`,
+  );
+  const unread = await outcomeOf(
+    commandsOf(server({ poll: [unavailable()] })).poll?.("cmd-1") ?? Promise.resolve(null),
+  );
+  check(classify(unread.err) === "plain-error", "12: poll that cannot read expected a plain Error");
+}
+
+{
+  const srv = server({ poll: [row("FAILED", { errorCode: "InternalError" })] });
+  const out = await commandsOf(srv).submit16("CP1", RESET);
+  const text = JSON.stringify(out);
+  check(
+    !text.includes("a-password-of-16-chars") && !text.includes("bearer-1"),
+    `12: an outcome quotes a secret: ${text}`,
+  );
+}
+
+{
+  // execute() keeps its contract beside the new surface.
+  const srv = server({ poll: [row("SENT")] });
+  const r = await outcomeOf(driverFor(freshUrl(), srv).operations16.execute("CP1", RESET));
+  check(r.ok, "12: execute resolves at SENT as before");
 }
 
 if (failures.length > 0) {
