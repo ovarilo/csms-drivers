@@ -92,14 +92,12 @@ export function reason(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** The first `max` characters of a text quoted in a failure message. */
-export function preview(text: string | undefined, max = BODY_PREVIEW): string | undefined {
-  // `JSON.stringify` is typed `string` and still returns `undefined` for
-  // `undefined`: it passes through, and prints as such.
-  return text?.slice(0, max);
+/** The first characters of a text quoted in a failure message. */
+function preview(text: string): string {
+  return text.slice(0, BODY_PREVIEW);
 }
 
-async function bodyPreview(res: Response): Promise<string | undefined> {
+async function bodyPreview(res: Response): Promise<string> {
   return preview(await res.text().catch(() => "<unreadable body>"));
 }
 
@@ -126,9 +124,12 @@ const KEPT_REFUSALS: readonly number[] = [401, 403, 429];
  *  the session cache keeps; see the header. */
 class SigninRefused extends CsmsNotDispatchedError {}
 
-export interface ApiResponse {
-  status: number;
-  parsed: unknown;
+/** Drops `pending` from the cache, unless another caller replaced it. */
+function forget(key: string, pending: Promise<Session> | undefined): void {
+  if (pending !== undefined && sessions.get(key) === pending) {
+    sessions.delete(key);
+    refusedAt.delete(key);
+  }
 }
 
 export class EvslApi {
@@ -174,29 +175,18 @@ export class EvslApi {
     const key = this.sessionKey();
     const refused = refusedAt.get(key);
     if (refused !== undefined && Date.now() - refused >= KEPT_REFUSAL_MS) {
-      this.forget(sessions.get(key));
+      forget(key, sessions.get(key));
     }
-    let pending = sessions.get(key);
-    if (pending === undefined) {
-      const attempt = this.login();
-      pending = attempt;
-      sessions.set(key, attempt);
-      attempt.catch((err: unknown) => {
-        if (sessions.get(key) !== attempt) return;
-        if (err instanceof SigninRefused) refusedAt.set(key, Date.now());
-        else sessions.delete(key);
-      });
-    }
-    return pending;
-  }
-
-  /** Drops `pending` from the cache, unless another caller replaced it. */
-  private forget(pending: Promise<Session> | undefined): void {
-    const key = this.sessionKey();
-    if (pending !== undefined && sessions.get(key) === pending) {
-      sessions.delete(key);
-      refusedAt.delete(key);
-    }
+    const cached = sessions.get(key);
+    if (cached !== undefined) return cached;
+    const attempt = this.login();
+    sessions.set(key, attempt);
+    attempt.catch((err: unknown) => {
+      if (sessions.get(key) !== attempt) return;
+      if (err instanceof SigninRefused) refusedAt.set(key, Date.now());
+      else sessions.delete(key);
+    });
+    return attempt;
   }
 
   private async login(): Promise<Session> {
@@ -227,21 +217,17 @@ export class EvslApi {
       { cookie: `XSRF-TOKEN=${csrf}`, [csrfHeader]: csrf },
       { tenant: this.cfg.tenant, email: this.cfg.email, password: this.cfg.password },
     );
-    if (KEPT_REFUSALS.includes(res.status)) {
-      throw new SigninRefused(
-        what,
-        `returned ${res.status} for ${this.cfg.email} on tenant ${this.cfg.tenant}` +
-          " -- the server counts every attempt against a limit of ten per" +
-          " fifteen minutes, so this process will not try again for fifteen minutes" +
-          `: ${await bodyPreview(res)}`,
-      );
-    }
     if (!res.ok) {
-      throw new CsmsNotDispatchedError(
-        what,
-        `returned ${res.status} for ${this.cfg.email} on tenant ${this.cfg.tenant}` +
-          `: ${await bodyPreview(res)}`,
-      );
+      const refused = `returned ${res.status} for ${this.cfg.email} on tenant ${this.cfg.tenant}`;
+      if (KEPT_REFUSALS.includes(res.status)) {
+        throw new SigninRefused(
+          what,
+          `${refused} -- the server counts every attempt against a limit of ten per` +
+            " fifteen minutes, so this process will not try again for fifteen minutes" +
+            `: ${await bodyPreview(res)}`,
+        );
+      }
+      throw new CsmsNotDispatchedError(what, `${refused}: ${await bodyPreview(res)}`);
     }
     const body = (await res.json().catch(() => null)) as {
       token?: unknown;
@@ -285,28 +271,22 @@ export class EvslApi {
   }
 
   /**
-   * One authenticated request. A method other than GET makes it a mutation,
-   * which carries the CSRF pair. `allow` lists the non-2xx statuses the caller
-   * handles itself -- a 404 that means "no such record", a 409 that means
-   * "already there" -- and returns rather than throws for.
+   * One authenticated request, answered with its parsed JSON body, or null
+   * for an empty one. A method other than GET makes it a mutation, which
+   * carries the CSRF pair.
    */
-  async request(
-    method: "GET" | "POST" | "PUT" | "DELETE",
-    path: string,
-    body?: unknown,
-    allow: readonly number[] = [],
-  ): Promise<ApiResponse> {
+  async request(method: "GET" | "POST", path: string, body?: unknown): Promise<unknown> {
     const first = await this.authenticated(method, path, body);
     let res = first.res;
-    if (res.status === 401 && !allow.includes(401) && Date.now() >= first.session.renewableAt) {
+    if (res.status === 401 && Date.now() >= first.session.renewableAt) {
       // See the header: a token outlived, retried once on a fresh login.
       await res.body?.cancel();
-      this.forget(first.pending);
+      forget(this.sessionKey(), first.pending);
       res = (await this.authenticated(method, path, body)).res;
     }
 
     const what = `codetics-ev-server-lite: ${method} ${path}`;
-    if (!res.ok && !allow.includes(res.status)) {
+    if (!res.ok) {
       throw new CsmsNotDispatchedError(what, `returned ${res.status}: ${await bodyPreview(res)}`);
     }
 
@@ -318,15 +298,11 @@ export class EvslApi {
         `${what} answered ${res.status} but its body could not be read: ${reason(err)}`,
       );
     }
-    if (!res.ok || text === "") return { status: res.status, parsed: null };
+    if (text === "") return null;
     try {
-      return { status: res.status, parsed: JSON.parse(text) as unknown };
+      return JSON.parse(text) as unknown;
     } catch {
       throw new Error(`${what} returned unparseable body: ${preview(text)}`);
     }
-  }
-
-  async get<T>(path: string, allow: readonly number[] = []): Promise<T | null> {
-    return (await this.request("GET", path, undefined, allow)).parsed as T | null;
   }
 }

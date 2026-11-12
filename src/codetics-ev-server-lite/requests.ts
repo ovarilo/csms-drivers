@@ -61,7 +61,7 @@ import {
   type ChargingProfileRef,
   type CsmsOperation16,
 } from "../contracts.ts";
-import { preview, reason, type EvslApi } from "./api-client.ts";
+import { reason, type EvslApi } from "./api-client.ts";
 
 /** OCPP 1.6 ChargingProfile, spelled as the wire spells it. */
 export interface EvslChargingProfile {
@@ -107,7 +107,7 @@ function sleep(ms: number): Promise<void> {
 /** The command row a dispatched command resolves with, as its receipt. Longer
  *  than an error's body preview on purpose: it is the whole receipt. */
 function receiptOf(row: CommandRow): string {
-  return preview(JSON.stringify(row), 500) ?? "";
+  return JSON.stringify(row).slice(0, 500);
 }
 
 /** Drops the members that are `undefined`, so an absent optional field is
@@ -153,11 +153,6 @@ function transactionId(ref: string, action: string): number {
     "an OCPP transaction id",
     " -- the caller's transaction lookup came back empty",
   );
-}
-
-/** Integer reservation id from a ref; same refusal as {@link transactionId}. */
-function reservationId(ref: string, action: string): number {
-  return integerRef(ref, action, "an integer reservation id");
 }
 
 /**
@@ -303,11 +298,11 @@ function toPayload(op: CsmsOperation16, refs: EvslRefs): Record<string, unknown>
         reservationId:
           op.reservation === undefined
             ? allocateReservationId()
-            : reservationId(op.reservation, op.action),
+            : integerRef(op.reservation, op.action, "an integer reservation id"),
       });
 
     case "CancelReservation":
-      return { reservationId: reservationId(op.reservation, op.action) };
+      return { reservationId: integerRef(op.reservation, op.action, "an integer reservation id") };
 
     default:
       return assertNever(op, "codetics-ev-server-lite.execute");
@@ -332,9 +327,7 @@ export async function dispatch(
   timeoutMs: number,
 ): Promise<string> {
   const path = `/api/v1/stations/${encodeURIComponent(cpId)}/commands`;
-  const receipt = (await api.request("POST", path, command)).parsed as {
-    id?: unknown;
-  } | null;
+  const receipt = (await api.request("POST", path, command)) as { id?: unknown } | null;
   if (typeof receipt?.id !== "string") {
     throw new Error(
       `codetics-ev-server-lite: POST ${path} answered without a command id: ${JSON.stringify(receipt)}`,
@@ -352,11 +345,11 @@ export async function dispatch(
     let row: CommandRow | undefined;
     let readFailure: string | undefined;
     try {
-      const rows = await api.get<unknown>("/api/v1/commands");
+      const rows = await api.request("GET", "/api/v1/commands");
       if (Array.isArray(rows)) {
         row = (rows as (CommandRow | null)[]).find((r) => r?.id === id) ?? undefined;
       } else {
-        readFailure = `GET /api/v1/commands answered something that is not a list: ${preview(JSON.stringify(rows), 200)}`;
+        readFailure = `GET /api/v1/commands answered something that is not a list: ${JSON.stringify(rows).slice(0, 200)}`;
       }
     } catch (err) {
       readFailure = reason(err);
