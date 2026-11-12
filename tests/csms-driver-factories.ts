@@ -3,11 +3,17 @@
 /**
  * Public-factory composition: a SteVe OCPP 1.6 operation must be encoded and
  * posted through its authenticated manager-UI flow, and a CitrineOS OCPP 1.6
- * operation must reach the matching route with its station and tenant. The
- * fakes observe the public factory result without starting a CSMS or TCK run.
+ * operation must reach the matching route with its station and tenant. A SteVe
+ * ReserveNow carrying a parentIdTag is posted only when it is the parent
+ * SteVe will send anyway, and refused as unsupported otherwise. The fakes
+ * observe the public factory result without starting a CSMS.
  */
 
-import { createCitrineOsCsmsDriver, createSteveCsmsDriver } from "@ovarilo/csms-drivers";
+import {
+  createCitrineOsCsmsDriver,
+  createSteveCsmsDriver,
+  UnsupportedOperationError,
+} from "@ovarilo/csms-drivers";
 import type { FetchLike } from "@ovarilo/csms-drivers";
 
 const failures: string[] = [];
@@ -66,6 +72,121 @@ async function verifySteveFactory(): Promise<void> {
   check(form.get("resetType") === "HARD", "SteVe factory maps the OCPP operation to the UI form");
 }
 
+/**
+ * SteVe's ReserveNow form has no parentIdTag field: SteVe sends the reserved
+ * tag's STORED parent (ChargePointServiceClient#reserveNow reads it from
+ * ocpp_tag). So a requested parentIdTag is either the one SteVe will send, or
+ * one this driver cannot express -- and dropping it silently would let a
+ * scenario believe it reserved for a group it never named. Four rows: the
+ * request without a parent is untouched, and a parent is posted only when the
+ * injected lookup says SteVe stores exactly that one.
+ */
+async function verifySteveReserveNowParent(): Promise<void> {
+  function harness(): { fetch: FetchLike; posts: string[] } {
+    const posts: string[] = [];
+    const fetch: FetchLike = async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/signin") && method === "GET") {
+        return new Response('<input name="_csrf" value="login-token">');
+      }
+      if (url.endsWith("/signin") && method === "POST") {
+        return redirect("/manager/home");
+      }
+      if (url.endsWith("/operations/v1.6/ReserveNow") && method === "GET") {
+        return new Response('<input name="_csrf" value="operation-token">');
+      }
+      if (url.endsWith("/operations/v1.6/ReserveNow") && method === "POST") {
+        posts.push(await new Response(init?.body).text());
+        return redirect("/manager/operations/tasks/43");
+      }
+      return new Response("unexpected request", { status: 500 });
+    };
+    return { fetch, posts };
+  }
+  const config = { baseUrl: "http://steve/manager", username: "operator", password: "secret" };
+  const reserve = {
+    action: "ReserveNow" as const,
+    connectorId: 1,
+    idTag: "TAG-RES",
+    expiryDate: new Date("2030-01-01T00:00:00Z"),
+  };
+  const lookedUp: string[] = [];
+  const storedParent = async (idTag: string): Promise<string | null> => {
+    lookedUp.push(idTag);
+    return idTag === "TAG-RES" ? "TAG-GRP" : null;
+  };
+
+  async function refusal(promise: Promise<unknown>): Promise<unknown> {
+    try {
+      await promise;
+      return undefined;
+    } catch (err) {
+      return err;
+    }
+  }
+
+  const plain = harness();
+  await createSteveCsmsDriver({ config, fetch: plain.fetch }).operations16.execute("CP-1", reserve);
+  check(plain.posts.length === 1, "SteVe ReserveNow without a parentIdTag is posted as before");
+
+  const blind = harness();
+  const blindErr = await refusal(
+    createSteveCsmsDriver({ config, fetch: blind.fetch }).operations16.execute("CP-1", {
+      ...reserve,
+      parentIdTag: "TAG-GRP",
+    }),
+  );
+  check(
+    blindErr instanceof UnsupportedOperationError,
+    "SteVe ReserveNow refuses a parentIdTag it has no way to check against the stored parent",
+  );
+  check(
+    blind.posts.length === 0,
+    "SteVe ReserveNow posts nothing when it cannot check the parentIdTag",
+  );
+
+  const matching = harness();
+  const matchingErr = await refusal(
+    createSteveCsmsDriver({
+      config,
+      fetch: matching.fetch,
+      ocppTagParent: storedParent,
+    }).operations16.execute("CP-1", {
+      ...reserve,
+      parentIdTag: "TAG-GRP",
+    }),
+  );
+  check(
+    matchingErr === undefined && matching.posts.length === 1,
+    `SteVe ReserveNow posts a parentIdTag equal to the reserved tag's stored parent${matchingErr ? ` (threw: ${matchingErr instanceof Error ? matchingErr.message : JSON.stringify(matchingErr)})` : ""}`,
+  );
+  check(
+    lookedUp.join(",") === "TAG-RES",
+    "SteVe ReserveNow looks up the parent of the RESERVED idTag",
+  );
+
+  const wrong = harness();
+  const wrongErr = await refusal(
+    createSteveCsmsDriver({
+      config,
+      fetch: wrong.fetch,
+      ocppTagParent: storedParent,
+    }).operations16.execute("CP-1", {
+      ...reserve,
+      parentIdTag: "TAG-OTHER",
+    }),
+  );
+  check(
+    wrongErr instanceof UnsupportedOperationError,
+    "SteVe ReserveNow refuses a parentIdTag other than the reserved tag's stored parent",
+  );
+  check(
+    wrong.posts.length === 0,
+    "SteVe ReserveNow posts nothing for a parentIdTag SteVe would not send",
+  );
+}
+
 async function verifyCitrine16Factory(): Promise<void> {
   let requestUrl = "";
   let requestBody = "";
@@ -104,6 +225,7 @@ async function verifyCitrine16Factory(): Promise<void> {
 }
 
 await verifySteveFactory();
+await verifySteveReserveNowParent();
 await verifyCitrine16Factory();
 
 if (failures.length > 0) {

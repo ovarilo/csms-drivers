@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SteVe 3.15.0: charge-point administration finds a station whose id looks like markup
   (`CP&01`, a quote) on the escaped list 3.15.0 renders, and no longer takes another station
   for it on the raw list of 3.14.x (`X&amp;amp;` listed for `X&amp;`).
+- SteVe: a ReserveNow carrying a `parentIdTag` throws `UnsupportedOperationError` unless it is
+  the reserved tag's stored parent, which the new `ocppTagParent` option of
+  `createSteveCsmsDriver` looks up. SteVe has no field for another parent and sends the stored
+  one, so the requested parent used to be dropped silently.
 
 ## [0.0.2] - 2026-10-19
 
