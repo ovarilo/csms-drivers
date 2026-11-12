@@ -107,7 +107,7 @@ import {
   type FetchLike,
 } from "@ovarilo/csms-drivers";
 
-import { chargePointAdminConformance } from "@ovarilo/csms-drivers/conformance";
+import { chargePointAdminConformance, RULE } from "@ovarilo/csms-drivers/conformance";
 import { fakeCodeticsAdmin } from "./fixtures/fake-codetics-admin.ts";
 
 const failures: string[] = [];
@@ -1127,6 +1127,18 @@ const ADMIN_CONFIG = (apiUrl: string) => ({
       report.passed.length > 0,
       `13 (${name}): the conformance suite must have passed some rules, not skipped them all`,
     );
+    const mustNotSkip = [
+      RULE.generatedPasswordReturned,
+      RULE.noPasswordUnlessGenerated,
+      RULE.passwordModeBinds,
+      RULE.refusedPasswordModeChangesNothing,
+      ...(profiles.length > 1 ? [RULE.updateAppliesSecurity] : []),
+    ];
+    const wrongly = report.skipped.filter((s) => (mustNotSkip as string[]).includes(s.rule));
+    check(
+      wrongly.length === 0,
+      `13 (${name}): nothing is skipped that the declaration makes applicable: ${JSON.stringify(wrongly)}`,
+    );
     check(admin.stations.size === 0, `13 (${name}): the suite must leave no station behind`);
   }
 }
@@ -1140,6 +1152,8 @@ const ADMIN_CONFIG = (apiUrl: string) => ({
     clientCaConfigured: true,
   });
   const cp = driver.chargePoints!;
+  const ADMIN_PASSWORD = "a-password-of-16-chars";
+  const caught: unknown[] = [];
 
   const created = await cp.create({ id: "CP A/1", security: { profile: 1 }, description: "bay" });
   const secret = created?.generatedBasicAuthPassword;
@@ -1199,6 +1213,18 @@ const ADMIN_CONFIG = (apiUrl: string) => ({
     "14: update keeps the members it did not name",
   );
 
+  // The admin password travels in the signin body and nowhere else. `all`
+  // is never reset, so the check below sees every request made so far.
+  {
+    const withPassword = admin.all.filter((r) =>
+      JSON.stringify(r.body ?? null).includes(ADMIN_PASSWORD),
+    );
+    check(
+      withPassword.length >= 1 && withPassword.every((r) => r.path === "/api/v1/auth/app/signin"),
+      `14: only the signin body carries the admin password: ${JSON.stringify(withPassword.map((r) => r.path))}`,
+    );
+  }
+
   // delete
   admin.active.add("CP A/1");
   const busy = await cp.delete("CP A/1").then(
@@ -1213,6 +1239,7 @@ const ADMIN_CONFIG = (apiUrl: string) => ({
       busy.message.includes("409"),
     `14: delete during an active session is a plain Error naming 409: ${message(busy)}`,
   );
+  caught.push(busy);
   check(admin.stations.has("CP A/1"), "14: a refused delete removes nothing");
   admin.active.clear();
   await cp.delete("CP A/1");
@@ -1243,6 +1270,7 @@ const ADMIN_CONFIG = (apiUrl: string) => ({
       () => null,
       (e: unknown) => e,
     );
+    caught.push(err);
     check(err instanceof UnsupportedOperationError, `14: ${what} is an UnsupportedOperationError`);
   }
   check(
@@ -1250,9 +1278,16 @@ const ADMIN_CONFIG = (apiUrl: string) => ({
     `14: a refused call sends no request: ${JSON.stringify(admin.sent)}`,
   );
 
+  const secrets = [ADMIN_PASSWORD, ...[...admin.stations.values()].map((st) => st.secret)];
+  for (const err of caught) {
+    check(
+      err instanceof Error && secrets.every((s) => !err.message.includes(s)),
+      `14: no caught error carries the admin password or a generated secret: ${message(err)}`,
+    );
+  }
   check(
-    !JSON.stringify(admin.sent).includes("a-password-of-16-chars"),
-    "14: no admin request body carries the admin password",
+    caught.length === refusals.length + 1 && secrets.length > 1,
+    "14: the error scan covered the delete 409 and every refusal",
   );
 }
 
@@ -1327,6 +1362,45 @@ const ADMIN_CONFIG = (apiUrl: string) => ({
     "15: a failed rotation puts the previous profile back",
   );
   admin.faults.secret = false;
+}
+
+// A 2xx body that will not parse can carry the secret the server just made:
+// the error names the request, never the body.
+{
+  const admin = fakeCodeticsAdmin();
+  const LEAK = "leaky-generated-secret-xyz";
+  let garble = false;
+  const fetchImpl: typeof admin.fetch = async (input, init) => {
+    const res = await admin.fetch(input, init);
+    const path = new URL(input).pathname;
+    const method = init?.method ?? "GET";
+    if (garble && method === "POST" && (path === "/api/v1/stations" || path.endsWith("/secret"))) {
+      return new Response(`<html>secret=${LEAK}</html>`, { status: 200 });
+    }
+    return res;
+  };
+  const driver = createCodeticsEvServerLiteCsmsDriver({
+    config: ADMIN_CONFIG(freshUrl()),
+    fetch: fetchImpl,
+    allowUnauthenticated: true,
+  });
+  const cp = driver.chargePoints!;
+  await cp.create({ id: "L0", security: { profile: 0 }, description: "d" });
+  garble = true;
+  const attempts: [string, () => Promise<unknown>][] = [
+    ["create", () => cp.create({ id: "L1", security: { profile: 1 }, description: "d" })],
+    ["rotate", () => cp.update("L0", { security: { profile: 1 } })],
+  ];
+  for (const [what, run] of attempts) {
+    const err = await run().then(
+      () => null,
+      (e: unknown) => e,
+    );
+    check(
+      err instanceof Error && err.message.includes("unparseable") && !err.message.includes(LEAK),
+      `16: ${what}: an unparseable 2xx body is reported without being quoted: ${message(err)}`,
+    );
+  }
 }
 
 if (failures.length > 0) {
