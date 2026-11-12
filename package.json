@@ -100,7 +100,7 @@
     "lint": "vp lint",
     "format": "vp fmt --write",
     "format:check": "vp fmt --check",
-    "test": "bun run build && bash scripts/boundary.sh && bun tests/shared-http.ts && bun tests/csms-driver-factories.ts && bun tests/codetics-ev-server-lite-driver.ts && bun tests/csms-driver-charge-points.ts && bun tests/csms-server.ts && bun tests/release-changelog.ts && bun tests/package-content.ts && bun tests/release-state.ts && bun examples/csms-driver-smoke.ts && bash scripts/package-smoke.sh",
+    "test": "bun run build && bash scripts/boundary.sh && bun tests/shared-http.ts && bun tests/steve-web-api.ts && bun tests/csms-driver-factories.ts && bun tests/codetics-ev-server-lite-driver.ts && bun tests/csms-driver-charge-points.ts && bun tests/csms-server.ts && bun tests/release-changelog.ts && bun tests/package-content.ts && bun tests/release-state.ts && bun examples/csms-driver-smoke.ts && bash scripts/package-smoke.sh",
     "check": "vp check && bun run typecheck && bun run test && bun scripts/check-package.ts"
   },
   "devDependencies": {
