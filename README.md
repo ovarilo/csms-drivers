@@ -201,29 +201,6 @@ const driver = createCodeticsEvServerLiteCsmsDriver({
 await driver.operations16.execute("CP-1", { action: "Reset", type: "Soft" });
 ```
 
-Charge-point administration (`driver.chargePoints`) goes through the server's
-`/api/v1/stations` routes, and what the server does shapes the declaration:
-
-- The password is always **generated** (`basicAuthPassword: "generated"`): `create`
-  and an `update` to profile 1 resolve with `{ generatedBasicAuthPassword }`, shown
-  once. A supplied password is refused.
-- The description is **required** (`description: "required"`): it is the station's
-  name, non-blank, and cannot be cleared.
-- Registration is **`Accepted` only** (`registrations`): the server always accepts a
-  boot, and its `enabled: false` is a SecurityError on every call, not OCPP's
-  `Rejected`, so the driver neither sets nor changes it.
-- Profile 1 is always offered; **0 and 3 depend on how the server is deployed**, so
-  they come from the driver options `allowUnauthenticated` (the server's
-  `OCPP_ALLOW_UNAUTHENTICATED`) and `clientCaConfigured`, and
-  `codeticsEvServerLiteCapabilities(options)` builds the declaration without a
-  client. Profile 2 is never offered. A station is created on profile 1 and moved to
-  0 or 3 afterwards; if that fails, the half-made station is deleted again.
-- `update` is read-modify-write: the server replaces the whole record on `PUT`, so
-  the driver reads it, changes one member and writes all of it back. It is not
-  atomic; a change made to the same station in between is lost.
-- `delete` of a missing station resolves; of a station with an active session the
-  server answers 409, which is a plain `Error`.
-
 - `execute()` resolves once the command has left `QUEUED` (`SENT`,
   `SUCCEEDED`, or `FAILED` with the station's CALLERROR), with the command row
   as its receipt. A command still `QUEUED` when `dispatchTimeoutMs` runs out
@@ -243,6 +220,31 @@ Charge-point administration (`driver.chargePoints`) goes through the server's
 - Transaction refs are the OCPP `transactionId`, as the server uses it as its
   own id. `ReserveNow` without a reservation ref gets an id allocated by the
   driver.
+
+Charge-point administration (`driver.chargePoints`) goes through the server's
+`/api/v1/stations` routes, and what the server does shapes the declaration:
+
+- The password is always **generated** (`basicAuthPassword: "generated"`): `create`
+  and an `update` to profile 1 resolve with `{ generatedBasicAuthPassword }`, shown
+  once. A supplied password is refused.
+- The description is **required** (`description: "required"`): it is the station's
+  name, non-blank, and cannot be cleared.
+- Registration is **`Accepted` only** (`registrations`): the server always accepts a
+  boot, and its `enabled: false` is a SecurityError on every call, not OCPP's
+  `Rejected`, so the driver neither sets nor changes it.
+- Profile 1 is always offered; **0 and 3 depend on how the server is deployed**, so
+  they come from the driver options `allowUnauthenticated` (the server's
+  `OCPP_ALLOW_UNAUTHENTICATED`) and `clientCaConfigured`, and
+  `codeticsEvServerLiteCapabilities(options)` builds the declaration without a
+  client. Profile 2 is never offered. A station is created on profile 1 and moved to
+  0 or 3 afterwards; if that fails, the half-made station is deleted again.
+- `update` of the description is read-modify-write: the server replaces the whole
+  record on `PUT`, so the driver reads it and writes all of it back. It is not
+  atomic; a change made to the same station in between is lost. An `update` of the
+  security profile reads the record, then calls `/security` and `/secret`, without
+  a `PUT` of the record.
+- `delete` of a missing station resolves; of a station with an active session the
+  server answers 409, which is a plain `Error`.
 
 The driver declares no OCPP 2.0.1 surface and no charge-point administration:
 a station must be registered (and, without a password, on security profile 0)

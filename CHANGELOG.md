@@ -15,8 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the description, and always accepts a boot, so the driver declares `"generated"`, `"required"`
   and `registrations` of `Accepted` only. Profile 1 is always offered; profiles 0 and 3 come from
   the new driver options `allowUnauthenticated` and `clientCaConfigured`, readable without a
-  client through `codeticsEvServerLiteCapabilities(options)`. Profile 2 is not offered. `update`
-  reads and rewrites the whole record, so it is not atomic; `delete` of a station in an active
+  client through `codeticsEvServerLiteCapabilities(options)`. Profile 2 is not offered. An `update` of the
+  description reads the record and writes all of it back, so it is not atomic; `delete` of a station in an active
   session is a plain `Error`.
 
 - `capabilities.chargePoints.basicAuthPassword` (`"supplied"`, the default, or `"generated"`)
