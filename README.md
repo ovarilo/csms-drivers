@@ -2,7 +2,7 @@
 
 Reusable CSMS driver library: OCPP operation contracts, dispatch errors,
 capability declarations, typed session and connector read interfaces, the
-bundled SteVe and CitrineOS operation factories, and an HTTP/JSON handler over
+bundled SteVe, CitrineOS and Codetics ev-server-lite operation factories, and an HTTP/JSON handler over
 any driver. OCPP 1.6 and OCPP 2.0.1 remain separate contracts.
 
 Extracted from [open-ocpp-tck](https://github.com/juherr/open-ocpp-tck)
@@ -48,7 +48,7 @@ is a base configuration that sets `bundler`:
 
 | import | contents |
 |---|---|
-| `@ovarilo/csms-drivers` | contracts, errors, charge-point model, `createSteveCsmsDriver`, `createCitrineOsCsmsDriver` |
+| `@ovarilo/csms-drivers` | contracts, errors, charge-point model, `createSteveCsmsDriver`, `createCitrineOsCsmsDriver`, `createCodeticsEvServerLiteCsmsDriver` |
 | `@ovarilo/csms-drivers/server` | `createCsmsHttpHandler` and the HTTP route table |
 
 ## Usage
@@ -145,8 +145,54 @@ Three things follow from that UI. A refusal (a password outside SteVe's 16 to
 cannot clear a stored password, so a move to profile 0 or 3 replaces it with
 a random one nobody holds. And a security change on a station that is
 connected is pushed to it as `ChangeConfiguration`; if the station refuses,
-`update` throws although the record has changed. The CitrineOS driver does not
-implement the surface yet.
+`update` throws although the record has changed. The CitrineOS and Codetics
+ev-server-lite drivers do not implement the surface yet.
+
+## Codetics ev-server-lite
+
+[ev-server-lite](https://github.com/codetics-software/ev-server-lite) is an OCPP 1.6J
+CSMS with a REST admin API. `createCodeticsEvServerLiteCsmsDriver` queues every
+OCPP 1.6 operation through its generic command endpoint,
+`POST /api/v1/stations/{id}/commands`, then polls the command until the
+server's dispatcher has written the CALL to the station:
+
+```ts
+import { createCodeticsEvServerLiteCsmsDriver } from "@ovarilo/csms-drivers";
+
+const driver = createCodeticsEvServerLiteCsmsDriver({
+  config: {
+    apiUrl: "http://localhost:8380",
+    tenant: "codetics",
+    email: "admin@example.com",
+    password: process.env.EVSL_PASSWORD!,
+    dispatchTimeoutMs: 15_000, // the default
+  },
+  // Only needed by operations that carry a charging-profile ref.
+  refs: { chargingProfileByRef: (ref) => myProfiles.get(ref) },
+});
+
+await driver.operations16.execute("CP-1", { action: "Reset", type: "Soft" });
+```
+
+- `execute()` resolves once the command has left `QUEUED` (`SENT`,
+  `SUCCEEDED`, or `FAILED` with the station's CALLERROR), with the command row
+  as its receipt. A command still `QUEUED` when `dispatchTimeoutMs` runs out
+  (the station is not connected), `TIMED_OUT`, `CANCELLED` or `FAILED` without
+  a result is a `CsmsNotDispatchedError`. The server cannot cancel a command,
+  so an abandoned one may still reach the station later.
+- The server counts every signin against a limit of ten per fifteen minutes per
+  account, until it restarts. The driver logs in once per process, server and
+  account, shared by every driver instance; a signin refused 401, 403 or 429 is
+  remembered for the life of the process instead of retried.
+- `GetConfiguration` with a key list is an `UnsupportedOperationError`: the
+  server's validator refuses any array `key` member. Requesting every key works.
+- Transaction refs are the OCPP `transactionId`, as the server uses it as its
+  own id. `ReserveNow` without a reservation ref gets an id allocated by the
+  driver.
+
+The driver declares no OCPP 2.0.1 surface and no charge-point administration:
+a station must be registered (and, without a password, on security profile 0)
+before it can connect.
 
 ## Over HTTP
 

@@ -51,9 +51,10 @@ Tests are plain Bun scripts, not a test runner. Each one collects failures throu
   - A plain `Error` is an environment or CSMS fault.
   - `ChargePointAlreadyExistsError` and `ChargePointNotFoundError` cover administration.
   - Don't swap one class for another casually: the HTTP status mapping and upstream verdicts depend on them.
-- **Drivers** are factories (`createSteveCsmsDriver`, `createCitrineOsCsmsDriver`). They take config, an injectable `fetch: FetchLike` transport (how every test fakes the CSMS), and the lookups needed to translate opaque handles (CitrineOS `refs`).
+- **Drivers** are factories (`createSteveCsmsDriver`, `createCitrineOsCsmsDriver`, `createCodeticsEvServerLiteCsmsDriver`). They take config, an injectable `fetch: FetchLike` transport (how every test fakes the CSMS), and the lookups needed to translate opaque handles (CitrineOS `refs`).
   - **SteVe** (`src/steve/`) drives the manager UI like a browser: login, CSRF token, form POST, through one shared and locked session (`ui-client.ts`). Charge-point administration also goes through the UI, because SteVe has no REST endpoint for it. CSMS form fields stay in `forms.ts`.
   - **CitrineOS** (`src/citrineos/`) uses the message API. `variant` (`v1`/`v2`) decides what is routable (`variant.ts`); only `v2` exposes `operations201`. It does not implement `chargePoints` yet.
+  - **Codetics ev-server-lite** (`src/codetics-ev-server-lite/`) queues every 1.6 operation through the REST command endpoint and polls the command state (`requests.ts` has the state table). Its login is cached per process, server and account, because the server rate-limits signins (`api-client.ts`). Charging profiles come from `refs.chargingProfileByRef`. No `operations201`, no `chargePoints`.
 - **HTTP adapter** (`src/server/`): `createCsmsHttpHandler(driver, options)` is a stateless `(Request) => Promise<Response>`, documented in `src/server/README.md`.
   - Each request makes at most one driver call.
   - Errors use a deterministic `{"error":{"code","message"}}` envelope.

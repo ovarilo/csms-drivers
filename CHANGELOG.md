@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Drive a Codetics ev-server-lite CSMS with `createCodeticsEvServerLiteCsmsDriver`: every OCPP
+  1.6 operation goes through its REST command endpoint, and `execute()` resolves once the
+  command was written to the station. Ported from open-ocpp-tck's
+  `drivers/codetics-ev-server-lite`, without its TCK fixtures.
+
 ## [0.0.2] - 2026-10-19
 
 ### Added

@@ -8,3 +8,13 @@ export { createSteveCsmsDriver } from "./steve/index.ts";
 export type { SteveCsmsDriverOptions } from "./steve/index.ts";
 export { createCitrineOsCsmsDriver, citrineOsCapabilities } from "./citrineos/index.ts";
 export type { CitrineOsCsmsDriverOptions } from "./citrineos/index.ts";
+export {
+  createCodeticsEvServerLiteCsmsDriver,
+  CODETICS_EV_SERVER_LITE_CAPABILITIES,
+} from "./codetics-ev-server-lite/index.ts";
+export type {
+  CodeticsEvServerLiteCsmsDriverOptions,
+  EvslChargingProfile,
+  EvslConfig,
+  EvslRefs,
+} from "./codetics-ev-server-lite/index.ts";
