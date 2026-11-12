@@ -30,10 +30,13 @@
  *  - `PUT /stations/{id}/security` applies a profile server-side only with
  *    `sendToStation: false` (otherwise the server wants a connected station).
  *    A station is created on profile 1, so a create on profile 0 or 3 is a
- *    create followed by that call; if it fails, the half-made station is
- *    deleted again, best effort. Moving to profile 1 sets the profile and then
- *    rotates the secret, because the CSMS-neutral contract returns the secret
- *    of every write that sets profile 1.
+ *    create followed by that call. Anything that fails after the POST (that
+ *    call, or an answer without a secret) deletes the half-made station again;
+ *    if the DELETE fails too, the original error says the station could not be
+ *    removed. Moving to profile 1 sets the profile and then rotates the
+ *    secret, because the CSMS-neutral contract returns the secret of every
+ *    write that sets profile 1; if the rotation fails, the previous profile
+ *    is put back (best effort) and the rotation's error is rethrown.
  *  - `DELETE` is a soft delete, answered 404 for a missing station (resolved:
  *    absent afterwards is what was asked) and 409 during an active session,
  *    which is a plain `Error`: the station is there and the CSMS refuses, an
@@ -93,6 +96,10 @@ function refuse(method: string, reason: string): never {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isProfile(value: unknown): value is ChargePointSecurityProfile {
+  return value === 0 || value === 1 || value === 2 || value === 3;
 }
 
 function requireSecret(body: unknown, what: string): string {
@@ -162,16 +169,26 @@ export function createEvslChargePoints(
 
       const { status, body } = await api.call("POST", STATIONS, { id: definition.id, name }, [409]);
       if (status === 409) throw new ChargePointAlreadyExistsError(definition.id);
-      // The server starts every station on profile 1 with a secret.
-      const secret = requireSecret(body, `POST ${STATIONS}`);
-      if (security.profile === 1) return { generatedBasicAuthPassword: secret };
+      // From here the station exists: any failure deletes it again.
       try {
+        // The server starts every station on profile 1 with a secret.
+        const secret = requireSecret(body, `POST ${STATIONS}`);
+        if (security.profile === 1) return { generatedBasicAuthPassword: secret };
         await setProfile(definition.id, security.profile);
+        return undefined;
       } catch (error) {
-        await api.call("DELETE", stationPath(definition.id), undefined, [404]).catch(() => {});
+        try {
+          await api.call("DELETE", stationPath(definition.id), undefined, [404]);
+        } catch (rollback) {
+          // Keep the original error's class; the reason is the DELETE's own
+          // message, which carries no secret.
+          if (error instanceof Error) {
+            const reason = rollback instanceof Error ? rollback.message : String(rollback);
+            error.message += ` and station ${definition.id} could not be removed: ${reason}`;
+          }
+        }
         throw error;
       }
-      return undefined;
     },
 
     async get(cpId: string): Promise<ChargePointDetails | null> {
@@ -208,9 +225,18 @@ export function createEvslChargePoints(
       }
       const security = patch.security;
       if (security === undefined) return undefined;
-      if (record.securityProfile !== security.profile) await setProfile(cpId, security.profile);
+      const previous = record.securityProfile;
+      if (previous !== security.profile) await setProfile(cpId, security.profile);
       if (security.profile !== 1) return undefined;
-      return { generatedBasicAuthPassword: await rotateSecret(cpId) };
+      try {
+        return { generatedBasicAuthPassword: await rotateSecret(cpId) };
+      } catch (error) {
+        // Profile 1 with a secret nobody holds is worse than the old profile.
+        if (previous !== security.profile && isProfile(previous)) {
+          await setProfile(cpId, previous).catch(() => {});
+        }
+        throw error;
+      }
     },
 
     async delete(cpId: string): Promise<void> {
