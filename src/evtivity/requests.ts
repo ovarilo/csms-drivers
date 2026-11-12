@@ -67,10 +67,16 @@ import {
   CsmsNotDispatchedError,
   UnsupportedOperationError,
   type ChargingProfileRef,
+  type CommandOutcome,
   type CsmsOperation16,
 } from "../contracts.ts";
 import { preview } from "../shared/http.ts";
-import { parseJsonOrUndefined, type EvtivityApi } from "./api-client.ts";
+import {
+  CommandWaitInterruptedError,
+  parseJsonOrUndefined,
+  type EvtivityApi,
+  type RawResponse,
+} from "./api-client.ts";
 
 /** OCPP 1.6 ChargingProfile, spelled as the wire spells it. */
 export interface EvtivityChargingProfile {
@@ -310,33 +316,23 @@ function reachedStation(status: number, error: unknown): boolean {
   return typeof error === "string" && prefixes.some((p) => error.startsWith(p));
 }
 
-/**
- * Sends one operation and returns the route's answer, serialised, as the
- * receipt. Throws per the table in the header.
- */
-export async function dispatch(
-  api: EvtivityApi,
-  cpId: string,
-  op: CsmsOperation16,
-  refs: EvtivityRefs,
-  timeoutMs: number,
-): Promise<string> {
-  const path = `/v1/ocpp/commands/v16/${op.action}`;
-  const what = `evtivity: ${op.action} for ${cpId} (POST ${path})`;
-  const res = await api.post(path, { stationId: cpId, ...toPayload(op, refs) }, timeoutMs);
+/** The station's `response` object of a 200, or a plain `Error` when the
+ *  route answered 200 without one. */
+function stationResponse(res: RawResponse, what: string): Record<string, unknown> {
+  const answer = parseJsonOrUndefined(res.text) as { response?: unknown } | undefined;
+  if (answer === undefined) {
+    throw new Error(`${what} answered 200 with a body that is not JSON: ${preview(res.text)}`);
+  }
+  if (typeof answer.response !== "object" || answer.response === null) {
+    throw new Error(`${what} answered 200 without the station's response: ${preview(res.text)}`);
+  }
+  return answer.response as Record<string, unknown>;
+}
+
+/** Throws what an answer other than a 200 stands for, per the header. */
+function refuse(res: RawResponse, op: CsmsOperation16, what: string): never {
   const parsed = parseJsonOrUndefined(res.text);
   const err = (parsed ?? {}) as ErrorBody;
-
-  if (res.status === 200) {
-    const answer = parsed as { response?: unknown } | undefined;
-    if (answer === undefined) {
-      throw new Error(`${what} answered 200 with a body that is not JSON: ${preview(res.text)}`);
-    }
-    if (typeof answer.response !== "object" || answer.response === null) {
-      throw new Error(`${what} answered 200 without the station's response: ${preview(res.text)}`);
-    }
-    return res.text.slice(0, 500);
-  }
   if (res.status === 400 && err.code === "OCPP_VERSION_MISMATCH") {
     throw new UnsupportedOperationError(
       op.action,
@@ -359,4 +355,88 @@ export async function dispatch(
   }
   // 202 and every refusal before the publish.
   throw new CsmsNotDispatchedError(what, `returned ${res.status}: ${preview(res.text)}`);
+}
+
+/**
+ * Sends one operation and returns the route's answer, serialised, as the
+ * receipt. Throws per the table in the header.
+ */
+export async function dispatch(
+  api: EvtivityApi,
+  cpId: string,
+  op: CsmsOperation16,
+  refs: EvtivityRefs,
+  timeoutMs: number,
+): Promise<string> {
+  const path = `/v1/ocpp/commands/v16/${op.action}`;
+  const what = `evtivity: ${op.action} for ${cpId} (POST ${path})`;
+  const res = await api.post(path, { stationId: cpId, ...toPayload(op, refs) }, timeoutMs);
+  if (res.status === 200) {
+    stationResponse(res, what);
+    return res.text.slice(0, 500);
+  }
+  return refuse(res, op, what);
+}
+
+/** CALLRESULT statuses that are the station refusing the command. */
+const REFUSING_STATUSES: readonly string[] = ["Rejected", "NotSupported"];
+
+/**
+ * Sends one operation and reports the station's answer as a value. The route
+ * blocks, so there is no ref and nothing to poll.
+ *
+ *   200, status Rejected/NotSupported  rejected
+ *   200, any other answer              confirmed, `response` the station's payload
+ *   502 CALLERROR / Invalid CALLRESULT failed: the station answered with an error
+ *   504 Timeout waiting for response   unknown (timeout): the CALL left, no answer
+ *   our own deadline or a caller abort unknown: the request may have left, so
+ *                                      never `failed`; a caller abort is
+ *                                      `no-evidence`
+ *
+ * Everything that is not evidence about the wire after the CALL keeps its
+ * `execute` verdict and is thrown: a refusal before the publish, a failed
+ * send, a version mismatch, a 500, a 200 that cannot be read.
+ */
+export async function submitOperation(
+  api: EvtivityApi,
+  cpId: string,
+  op: CsmsOperation16,
+  refs: EvtivityRefs,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<CommandOutcome> {
+  signal?.throwIfAborted();
+  const path = `/v1/ocpp/commands/v16/${op.action}`;
+  const what = `evtivity: ${op.action} for ${cpId} (POST ${path})`;
+  const payload = { stationId: cpId, ...toPayload(op, refs) };
+  let res: RawResponse;
+  try {
+    res = await api.post(path, payload, timeoutMs, signal);
+  } catch (err) {
+    if (err instanceof CommandWaitInterruptedError) {
+      return {
+        state: "unknown",
+        at: new Date().toISOString(),
+        cause: err.timedOut ? "timeout" : "no-evidence",
+        detail: preview(err.reason),
+      };
+    }
+    throw err;
+  }
+  const at = new Date().toISOString();
+  if (res.status === 200) {
+    const response = stationResponse(res, what);
+    if (typeof response.status === "string" && REFUSING_STATUSES.includes(response.status)) {
+      return { state: "rejected", at, detail: `the station answered ${response.status}` };
+    }
+    return { state: "confirmed", at, response };
+  }
+  const err = (parseJsonOrUndefined(res.text) ?? {}) as ErrorBody;
+  if (res.status in WIRE_EVIDENCE && reachedStation(res.status, err.error)) {
+    const detail = typeof err.error === "string" ? preview(err.error) : preview(res.text);
+    return res.status === 504
+      ? { state: "unknown", at, cause: "timeout", detail }
+      : { state: "failed", at, detail };
+  }
+  return refuse(res, op, what);
 }
