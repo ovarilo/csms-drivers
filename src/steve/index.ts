@@ -36,6 +36,10 @@ export const STEVE_CAPABILITIES: CsmsCapabilities = {
     securityProfiles: STEVE_CHARGE_POINT_PROFILES,
     // SteVe's form offers all three; declared rather than left to the default.
     registrations: new Set(["Accepted", "Pending", "Rejected"]),
+    // Explicit rather than left to the defaults: the caller picks the Basic
+    // Auth password, and a station may have no description.
+    basicAuthPassword: "supplied",
+    description: "optional",
   },
   // SteVe's task page is not read back: a posted form is dispatched, and the
   // station's answer is never observed.

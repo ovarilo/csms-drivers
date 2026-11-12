@@ -19,10 +19,13 @@ import {
   ChargePointNotFoundError,
   type ChargePointDefinition,
   type ChargePointDetails,
+  type ChargePointProvisioned,
   type ChargePointRegistration,
   type ChargePointSecurity,
   type ChargePointSecurityProfile,
+  type ChargePointUpdate,
   type CsmsChargePointAdmin,
+  type CsmsChargePointCapabilities,
 } from "../charge-points.ts";
 import { UnsupportedOperationError } from "../contracts.ts";
 import type { CsmsDriver } from "../models.ts";
@@ -37,10 +40,26 @@ export const CONFORMANCE_IDS = [
   "CONFORMANCE-5",
   "CONFORMANCE-6",
   "CONFORMANCE-7",
+  "CONFORMANCE-8",
+  "CONFORMANCE-9",
+  "CONFORMANCE-10",
+  "CONFORMANCE-11",
   "CONFORMANCE-MISSING",
 ] as const;
-const [STATION_1, STATION_2, STATION_3, STATION_4, STATION_5, STATION_6, STATION_7, MISSING] =
-  CONFORMANCE_IDS;
+const [
+  STATION_1,
+  STATION_2,
+  STATION_3,
+  STATION_4,
+  STATION_5,
+  STATION_6,
+  STATION_7,
+  STATION_8,
+  STATION_9,
+  STATION_10,
+  STATION_11,
+  MISSING,
+] = CONFORMANCE_IDS;
 
 /** Deletes what a crashed run may have left behind; a live caller runs it first. */
 export async function clearConformanceStations(admin: CsmsChargePointAdmin): Promise<void> {
@@ -76,7 +95,20 @@ export const RULE = {
   omittedSecurityNeedsProfile0:
     "create with omitted security throws UnsupportedOperationError when profile 0 is not declared",
   refusedDefaultStoresNothing: "a create refused for its omitted security stores nothing",
-  passwordWriteOnly: "no read returns a password-named member",
+  passwordWriteOnly:
+    "no read returns a password-named member, and a write returns one only as generatedBasicAuthPassword",
+  generatedPasswordReturned:
+    "a driver declaring generated passwords returns a generatedBasicAuthPassword from every create and update that sets profile 1 or 2",
+  noPasswordUnlessGenerated:
+    "create and update return no generatedBasicAuthPassword unless the driver declares generated passwords and the write sets profile 1 or 2",
+  passwordModeBinds:
+    "create and update throw UnsupportedOperationError for a password supplied where passwords are generated, or omitted where they are supplied",
+  refusedPasswordModeChangesNothing:
+    "a create or update refused for its password mode changes nothing",
+  requiredDescriptionOnCreate:
+    "when the description is required, create without a non-blank one throws UnsupportedOperationError and stores nothing",
+  requiredDescriptionKept:
+    "when the description is required, update with a null or blank one throws UnsupportedOperationError and changes nothing",
   createRefusesUndeclared:
     "create with an undeclared security profile throws UnsupportedOperationError",
   refusedCreateStoresNothing: "a refused create stores nothing",
@@ -109,10 +141,16 @@ export function rejectsWith(
   );
 }
 
-export function securityFor(profile: ChargePointSecurityProfile): ChargePointSecurity {
-  return profile === 1 || profile === 2
-    ? { profile, basicAuthPassword: "conformance-secret" }
-    : { profile };
+/** The security block for `profile`: a supplied password on profile 1 and 2,
+ *  or none when the CSMS `"generated"` them. */
+export function securityFor(
+  profile: ChargePointSecurityProfile,
+  mode: "supplied" | "generated" = "supplied",
+): ChargePointSecurity {
+  if (profile === 1 || profile === 2) {
+    return mode === "supplied" ? { profile, basicAuthPassword: "conformance-secret" } : { profile };
+  }
+  return { profile };
 }
 
 /** The whole observable record, keys sorted at every level, so two reads
@@ -170,12 +208,8 @@ export async function chargePointAdminConformance(driver: CsmsDriver): Promise<C
   // A driver that throws where the contract says it resolves is a violation
   // to report, not a crash of the guard.
   try {
-    await exerciseLifecycle(
-      admin,
-      declared.securityProfiles,
-      registrations,
-      expect,
-      (rules, reason) => recorder.skip(rules, reason),
+    await exerciseLifecycle(admin, declared, registrations, expect, (rules, reason) =>
+      recorder.skip(rules, reason),
     );
     return recorder.report("the suite did not reach this rule");
   } catch (error) {
@@ -192,11 +226,40 @@ export async function chargePointAdminViolations(driver: CsmsDriver): Promise<st
 
 async function exerciseLifecycle(
   admin: CsmsChargePointAdmin,
-  profiles: ReadonlySet<ChargePointSecurityProfile>,
+  capabilities: CsmsChargePointCapabilities,
   registrations: ReadonlySet<ChargePointRegistration>,
   expect: Expect,
   skip: (rules: Rule | readonly Rule[], reason: string) => void,
 ): Promise<void> {
+  const profiles = capabilities.securityProfiles;
+  const mode = capabilities.basicAuthPassword ?? "supplied";
+  const descriptionRequired = capabilities.description === "required";
+  const secure = (profile: ChargePointSecurityProfile): ChargePointSecurity =>
+    securityFor(profile, mode);
+  // A required description is given everywhere a station is created, so that
+  // a refusal can only be for the rule under test; an optional one is left out
+  // where the default is what is read back.
+  const optionalDescription = descriptionRequired ? { description: "required" } : {};
+  const sets = (security: ChargePointSecurity | undefined): boolean =>
+    security?.profile === 1 || security?.profile === 2;
+  // Every write is also a check on what it hands back: a password only as
+  // `generatedBasicAuthPassword`, and that exactly when the CSMS generated one.
+  const judge = (result: void | ChargePointProvisioned, security?: ChargePointSecurity): void => {
+    const { generatedBasicAuthPassword, ...rest } = result ?? {};
+    expect(!exposesPassword(rest), RULE.passwordWriteOnly);
+    if (mode === "generated" && sets(security)) {
+      expect(
+        typeof generatedBasicAuthPassword === "string" && generatedBasicAuthPassword !== "",
+        RULE.generatedPasswordReturned,
+      );
+    } else {
+      expect(generatedBasicAuthPassword === undefined, RULE.noPasswordUnlessGenerated);
+    }
+  };
+  const create = async (definition: ChargePointDefinition): Promise<void> =>
+    judge(await admin.create(definition), definition.security);
+  const update = async (cpId: string, patch: ChargePointUpdate): Promise<void> =>
+    judge(await admin.update(cpId, patch), patch.security);
   // Every read is also a check that no password escapes it.
   const read = async (cpId: string): Promise<ChargePointDetails | null> => {
     const details = await admin.get(cpId);
@@ -242,11 +305,11 @@ async function exerciseLifecycle(
   const station: ChargePointDefinition = {
     id: STATION_1,
     registration,
-    security: securityFor(profile),
+    security: secure(profile),
     description: "first",
   };
   expect((await read(station.id)) === null, RULE.getMissingIsNull);
-  await admin.create(station);
+  await create(station);
   const created = await mustRead(station.id);
   expect(
     created.registration === registration &&
@@ -261,7 +324,7 @@ async function exerciseLifecycle(
         admin.create({
           id: station.id,
           registration: "Accepted",
-          security: securityFor(otherProfile ?? profile),
+          security: secure(otherProfile ?? profile),
           description: "second",
         }),
       ChargePointAlreadyExistsError,
@@ -274,7 +337,7 @@ async function exerciseLifecycle(
   // compared with the whole record before it.
   let before = await mustRead(station.id);
   const movedTo = otherRegistration ?? registration;
-  await admin.update(station.id, { registration: movedTo });
+  await update(station.id, { registration: movedTo });
   let after = await mustRead(station.id);
   if (otherRegistration === undefined) {
     skip(
@@ -287,7 +350,7 @@ async function exerciseLifecycle(
   expect(same(after, { ...before, registration: movedTo }), RULE.updateKeepsUnnamed);
 
   before = after;
-  await admin.update(station.id, { description: "second" });
+  await update(station.id, { description: "second" });
   after = await mustRead(station.id);
   expect(after.description === "second", RULE.updateAppliesDescription);
   expect(same(after, { ...before, description: "second" }), RULE.updateKeepsUnnamed);
@@ -297,7 +360,7 @@ async function exerciseLifecycle(
   // password it replaces is not observable here; #155 owns that per driver.
   before = after;
   expect(
-    await admin.update(station.id, { security: securityFor(profile) }).then(
+    await update(station.id, { security: secure(profile) }).then(
       () => true,
       () => false,
     ),
@@ -308,7 +371,7 @@ async function exerciseLifecycle(
 
   if (otherProfile !== undefined) {
     before = after;
-    await admin.update(station.id, { security: securityFor(otherProfile) });
+    await update(station.id, { security: secure(otherProfile) });
     after = await mustRead(station.id);
     expect(after.security.profile === otherProfile, RULE.updateAppliesSecurity);
     expect(
@@ -319,12 +382,16 @@ async function exerciseLifecycle(
     skip(RULE.updateAppliesSecurity, "securityProfiles declares a single profile: none to move to");
   }
 
-  before = after;
-  await admin.update(station.id, { description: null });
-  after = await mustRead(station.id);
-  const { description: _cleared, ...withoutDescription } = before;
-  expect(after.description === undefined, RULE.nullDescriptionClears);
-  expect(same(after, withoutDescription), RULE.updateKeepsUnnamed);
+  if (descriptionRequired) {
+    skip(RULE.nullDescriptionClears, "description is required: it cannot be cleared");
+  } else {
+    before = after;
+    await update(station.id, { description: null });
+    after = await mustRead(station.id);
+    const { description: _cleared, ...withoutDescription } = before;
+    expect(after.description === undefined, RULE.nullDescriptionClears);
+    expect(same(after, withoutDescription), RULE.updateKeepsUnnamed);
+  }
 
   expect(
     await rejectsWith(
@@ -346,7 +413,7 @@ async function exerciseLifecycle(
   );
 
   // Part 3, defaults. The registration default does not depend on profile 0.
-  await admin.create({ id: STATION_2, security: securityFor(profile) });
+  await create({ id: STATION_2, security: secure(profile), ...optionalDescription });
   expect((await read(STATION_2))?.registration === "Accepted", RULE.defaultRegistration);
   await admin.delete(STATION_2);
   // The security default IS profile 0, so it is only as available as 0 is.
@@ -355,7 +422,7 @@ async function exerciseLifecycle(
       RULE.omittedSecurityNeedsProfile0,
       "profile 0 is declared, so omitted security is accepted",
     );
-    await admin.create({ id: STATION_3 });
+    await create({ id: STATION_3, ...optionalDescription });
     expect((await read(STATION_3))?.security.profile === 0, RULE.defaultSecurity);
   } else {
     skip(
@@ -363,7 +430,10 @@ async function exerciseLifecycle(
       "profile 0 is not declared, so there is no default security to read",
     );
     expect(
-      await rejectsWith(() => admin.create({ id: STATION_3 }), UnsupportedOperationError),
+      await rejectsWith(
+        () => admin.create({ id: STATION_3, ...optionalDescription }),
+        UnsupportedOperationError,
+      ),
       RULE.omittedSecurityNeedsProfile0,
     );
     expect((await read(STATION_3)) === null, RULE.refusedDefaultStoresNothing);
@@ -376,7 +446,12 @@ async function exerciseLifecycle(
   if (undeclared !== undefined) {
     expect(
       await rejectsWith(
-        () => admin.create({ id: STATION_4, security: securityFor(undeclared) }),
+        () =>
+          admin.create({
+            id: STATION_4,
+            security: secure(undeclared),
+            ...optionalDescription,
+          }),
         UnsupportedOperationError,
       ),
       RULE.createRefusesUndeclared,
@@ -384,10 +459,10 @@ async function exerciseLifecycle(
     expect((await read(STATION_4)) === null, RULE.refusedCreateStoresNothing);
     await admin.delete(STATION_4);
 
-    await admin.create({
+    await create({
       id: STATION_5,
       registration,
-      security: securityFor(profile),
+      security: secure(profile),
       description: "kept",
     });
     before = await mustRead(STATION_5);
@@ -397,7 +472,7 @@ async function exerciseLifecycle(
           admin.update(STATION_5, {
             registration: otherRegistration ?? registration,
             description: "changed",
-            security: securityFor(undeclared),
+            security: secure(undeclared),
           }),
         UnsupportedOperationError,
       ),
@@ -430,7 +505,8 @@ async function exerciseLifecycle(
           admin.create({
             id: STATION_6,
             registration: undeclaredRegistration,
-            security: securityFor(profile),
+            security: secure(profile),
+            ...optionalDescription,
           }),
         UnsupportedOperationError,
       ),
@@ -439,10 +515,10 @@ async function exerciseLifecycle(
     expect((await read(STATION_6)) === null, RULE.refusedRegistrationChangesNothing);
     await admin.delete(STATION_6);
 
-    await admin.create({
+    await create({
       id: STATION_7,
       registration,
-      security: securityFor(profile),
+      security: secure(profile),
       description: "kept",
     });
     before = await mustRead(STATION_7);
@@ -452,7 +528,7 @@ async function exerciseLifecycle(
           admin.update(STATION_7, {
             registration: undeclaredRegistration,
             description: "changed",
-            security: securityFor(otherProfile ?? profile),
+            security: secure(otherProfile ?? profile),
           }),
         UnsupportedOperationError,
       ),
@@ -465,5 +541,97 @@ async function exerciseLifecycle(
       [RULE.undeclaredRegistrationRefused, RULE.refusedRegistrationChangesNothing],
       "registrations declares all three statuses: none is undeclared",
     );
+  }
+
+  // Part 6: who chooses the Basic Auth password. A password supplied where the
+  // CSMS generates them, or left out where the caller must send it, is refused
+  // like an undeclared profile, and the refusal changes nothing.
+  const passworded = declared.find((candidate) => candidate === 1 || candidate === 2);
+  if (passworded === undefined) {
+    skip(
+      [RULE.passwordModeBinds, RULE.refusedPasswordModeChangesNothing],
+      "no security profile with a Basic Auth password is declared",
+    );
+    if (mode === "generated") {
+      skip(
+        RULE.generatedPasswordReturned,
+        "no security profile with a Basic Auth password is declared",
+      );
+    }
+  } else {
+    const wrongMode: ChargePointSecurity =
+      mode === "generated"
+        ? { profile: passworded, basicAuthPassword: "conformance-secret" }
+        : { profile: passworded };
+    expect(
+      await rejectsWith(
+        () => admin.create({ id: STATION_8, security: wrongMode, ...optionalDescription }),
+        UnsupportedOperationError,
+      ),
+      RULE.passwordModeBinds,
+    );
+    expect((await read(STATION_8)) === null, RULE.refusedPasswordModeChangesNothing);
+    await admin.delete(STATION_8);
+
+    await create({
+      id: STATION_9,
+      registration,
+      security: secure(passworded),
+      description: "kept",
+    });
+    before = await mustRead(STATION_9);
+    expect(
+      await rejectsWith(
+        () =>
+          admin.update(STATION_9, {
+            registration: otherRegistration ?? registration,
+            description: "changed",
+            security: wrongMode,
+          }),
+        UnsupportedOperationError,
+      ),
+      RULE.passwordModeBinds,
+    );
+    expect(same(await read(STATION_9), before), RULE.refusedPasswordModeChangesNothing);
+    await admin.delete(STATION_9);
+  }
+
+  // Part 7: a required description. Create needs a non-blank one and update
+  // neither clears nor blanks it; each refusal changes nothing.
+  if (!descriptionRequired) {
+    skip(
+      [RULE.requiredDescriptionOnCreate, RULE.requiredDescriptionKept],
+      'description is declared "optional" (or not at all): it may be omitted and cleared',
+    );
+  } else {
+    let refusedEveryCreate = true;
+    for (const description of [undefined, "", "   "]) {
+      refusedEveryCreate &&= await rejectsWith(
+        () =>
+          admin.create({
+            id: STATION_10,
+            security: secure(profile),
+            ...(description === undefined ? {} : { description }),
+          }),
+        UnsupportedOperationError,
+      );
+    }
+    expect(refusedEveryCreate, RULE.requiredDescriptionOnCreate);
+    expect((await read(STATION_10)) === null, RULE.requiredDescriptionOnCreate);
+    await admin.delete(STATION_10);
+
+    await create({ id: STATION_11, security: secure(profile), description: "kept" });
+    before = await mustRead(STATION_11);
+    for (const description of [null, "", "   "]) {
+      expect(
+        await rejectsWith(
+          () => admin.update(STATION_11, { description }),
+          UnsupportedOperationError,
+        ),
+        RULE.requiredDescriptionKept,
+      );
+      expect(same(await read(STATION_11), before), RULE.requiredDescriptionKept);
+    }
+    await admin.delete(STATION_11);
   }
 }

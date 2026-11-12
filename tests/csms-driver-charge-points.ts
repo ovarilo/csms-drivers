@@ -14,7 +14,7 @@
  * this file, which runs on import: `tools/steve-charge-points.ts` asks it of
  * the pinned SteVe.
  *
- * PROPERTY, in 7 parts:
+ * PROPERTY, in 10 parts:
  *  1. DECLARED EXACTLY WHEN IMPLEMENTED. `capabilities.chargePoints` is
  *     present if and only if `chargePoints` is, and a present declaration
  *     names at least one security profile. Absent is "no admin surface";
@@ -82,6 +82,25 @@
  *     second one, so the reference conforms declaring only `Accepted`, and
  *     the rules for the undeclared states run exactly when there are any.
  *
+ *  8. THE REPORT. A rule that depends on something the driver does not
+ *     declare is skipped with a reason, never passed, and the lists of a
+ *     report hold every rule exactly once (plus, when the lifecycle throws,
+ *     the extra `failed` entry the README describes).
+ *  9. THE PASSWORD IS CHOSEN BY WHOM THE DRIVER DECLARES (#16).
+ *     `capabilities.chargePoints.basicAuthPassword` is `"supplied"` (absent)
+ *     or `"generated"`. Generated, a `create` or `update` that sets profile 1
+ *     or 2 without a password returns a non-empty `generatedBasicAuthPassword`
+ *     -- once, never by `get`, never as another password-named member; any
+ *     other write returns none, and a supplied driver never does. The wrong
+ *     mode (a password sent to a generating driver, none to a supplying one)
+ *     is refused with `UnsupportedOperationError` and changes nothing.
+ * 10. THE DESCRIPTION IS REQUIRED WHEN DECLARED (#16).
+ *     `capabilities.chargePoints.description: "required"`: a `create` without
+ *     a non-blank description, and an `update` setting it to `null` or blank,
+ *     are refused with `UnsupportedOperationError` and change nothing. The
+ *     lifecycle then gives every station a description and skips the
+ *     `null`-clears rule.
+ *
  * "Changes nothing" and "leaves the others alone" are checked against the
  * WHOLE observable record, compared key by key after sorting, on a station
  * whose every member starts away from its default -- so a rule cannot pass
@@ -117,9 +136,11 @@ import {
   createCitrineOsCsmsDriver,
   createSteveCsmsDriver,
   CsmsNotDispatchedError,
+  suppliedBasicAuthPassword,
   UnsupportedOperationError,
   type ChargePointDefinition,
   type ChargePointDetails,
+  type ChargePointProvisioned,
   type ChargePointRegistration,
   type ChargePointSecurity,
   type ChargePointSecurityProfile,
@@ -147,13 +168,50 @@ interface StoredChargePoint extends ChargePointDetails {
 }
 type Store = Map<string, StoredChargePoint>;
 
+/** Who chooses the password and whether a description is required, as the
+ *  reference enforces them. `"any"` is the lax copy: it takes both shapes. */
+interface Modes {
+  readonly password: "supplied" | "generated" | "any";
+  readonly description: "optional" | "required" | "any";
+}
+const DEFAULT_MODES: Modes = { password: "supplied", description: "optional" };
+const LAX_MODES: Modes = { password: "any", description: "any" };
+
 /** The contract, over a map. `accepts` and `acceptsRegistrations` are what it
  *  refuses outside of. */
 function memoryAdmin(
   store: Store,
   accepts: ReadonlySet<ChargePointSecurityProfile>,
   acceptsRegistrations: ReadonlySet<ChargePointRegistration>,
+  modes: Modes = DEFAULT_MODES,
 ): CsmsChargePointAdmin {
+  let generatedCount = 0;
+  const refuse = (method: string, reason: string): never => {
+    throw new UnsupportedOperationError(`chargePoints.${method}`, reason);
+  };
+  const refusePasswordMode = (method: string, security: ChargePointSecurity | undefined): void => {
+    if (security === undefined || (security.profile !== 1 && security.profile !== 2)) return;
+    const supplied = suppliedBasicAuthPassword(security) !== undefined;
+    if (modes.password === "generated" && supplied) refuse(method, "passwords are generated");
+    if (modes.password === "supplied" && !supplied) refuse(method, "passwords are supplied");
+  };
+  const refuseBlank = (method: string, description: string | null | undefined): void => {
+    if (modes.description === "required" && (description ?? "").trim() === "") {
+      refuse(method, "a description is required");
+    }
+  };
+  /** What a write that set `security` hands back: the password the CSMS made, if it made one. */
+  const provision = (
+    security: ChargePointSecurity | undefined,
+  ): { password?: string; provisioned?: ChargePointProvisioned } => {
+    const generates =
+      security !== undefined &&
+      (security.profile === 1 || security.profile === 2) &&
+      suppliedBasicAuthPassword(security) === undefined;
+    if (!generates) return {};
+    const password = `generated-password-${++generatedCount}`;
+    return { password, provisioned: { generatedBasicAuthPassword: password } };
+  };
   const refuseUnaccepted = (method: string, profile: ChargePointSecurityProfile): void => {
     if (!accepts.has(profile)) {
       throw new UnsupportedOperationError(
@@ -173,22 +231,24 @@ function memoryAdmin(
       );
     }
   };
-  const passwordOf = (security: ChargePointSecurity): string | undefined =>
-    "basicAuthPassword" in security ? security.basicAuthPassword : undefined;
 
   return {
     async create(definition) {
       const security = definition.security ?? { profile: 0 };
       refuseUnaccepted("create", security.profile);
       refuseUnacceptedRegistration("create", definition.registration);
+      refusePasswordMode("create", definition.security);
+      refuseBlank("create", definition.description);
       if (store.has(definition.id)) throw new ChargePointAlreadyExistsError(definition.id);
+      const { password, provisioned } = provision(security);
       store.set(definition.id, {
         id: definition.id,
         registration: definition.registration ?? "Accepted",
         security: { profile: security.profile },
-        basicAuthPassword: passwordOf(security),
+        basicAuthPassword: suppliedBasicAuthPassword(security) ?? password,
         description: definition.description,
       });
+      return provisioned;
     },
     async get(cpId) {
       const stored = store.get(cpId);
@@ -199,17 +259,23 @@ function memoryAdmin(
     async update(cpId, patch) {
       if (patch.security) refuseUnaccepted("update", patch.security.profile);
       refuseUnacceptedRegistration("update", patch.registration);
+      refusePasswordMode("update", patch.security);
+      if (patch.description !== undefined) refuseBlank("update", patch.description);
       const stored = store.get(cpId);
       if (stored === undefined) throw new ChargePointNotFoundError(cpId);
+      const { password, provisioned } = provision(patch.security);
       store.set(cpId, {
         id: cpId,
         registration: patch.registration ?? stored.registration,
         // `security` replaces the whole block, so a new profile drops the old password.
         security: patch.security ? { profile: patch.security.profile } : stored.security,
-        basicAuthPassword: patch.security ? passwordOf(patch.security) : stored.basicAuthPassword,
+        basicAuthPassword: patch.security
+          ? (suppliedBasicAuthPassword(patch.security) ?? password)
+          : stored.basicAuthPassword,
         description:
           patch.description === null ? undefined : (patch.description ?? stored.description),
       });
+      return provisioned;
     },
     async delete(cpId) {
       store.delete(cpId);
@@ -225,6 +291,7 @@ interface Reference {
   readonly store: Store;
   readonly declared: ReadonlySet<ChargePointSecurityProfile>;
   readonly declaredRegistrations: ReadonlySet<ChargePointRegistration>;
+  readonly modes: Modes;
 }
 
 /** One rule broken, and the rule the copy must be refused FOR -- a copy
@@ -235,6 +302,8 @@ type FlawCase = {
   readonly declares?: readonly ChargePointSecurityProfile[];
   /** The registrations it declares; omitted declares nothing, which means all three. */
   readonly registrations?: readonly ChargePointRegistration[];
+  /** The modes it declares; omitted declares nothing (supplied, optional). */
+  readonly modes?: Partial<Modes>;
 } & (
   | { readonly admin: (reference: Reference) => Partial<CsmsChargePointAdmin> }
   | { readonly driver: (driver: CsmsDriver) => CsmsDriver }
@@ -255,9 +324,9 @@ const patching =
 /** A flaw whose `create` stores the definition anyway after refusing it. */
 const createAnyway =
   ({ strict, lax }: Reference) =>
-  async (definition: ChargePointDefinition): Promise<void> => {
+  async (definition: ChargePointDefinition) => {
     try {
-      await strict.create(definition);
+      return await strict.create(definition);
     } catch (error) {
       await lax.create(definition);
       throw error;
@@ -302,15 +371,22 @@ function memoryDriver(
   flaw?: FlawCase,
   declares: readonly ChargePointSecurityProfile[] = DECLARED_PROFILES,
   registrations?: readonly ChargePointRegistration[],
+  declaredModes: Partial<Modes> = {},
 ): CsmsDriver {
   const store: Store = new Map();
+  const modes: Modes = {
+    ...DEFAULT_MODES,
+    ...declaredModes,
+    ...flaw?.modes,
+  } as Modes;
   const declared = new Set(flaw?.declares ?? declares);
   const declaredRegistrations = flaw?.registrations ?? registrations;
   const acceptedRegistrations = new Set(declaredRegistrations ?? ALL_REGISTRATIONS);
   const reference: Reference = {
-    strict: memoryAdmin(store, declared, acceptedRegistrations),
-    lax: memoryAdmin(store, new Set(ALL_PROFILES), new Set(ALL_REGISTRATIONS)),
+    strict: memoryAdmin(store, declared, acceptedRegistrations, modes),
+    lax: memoryAdmin(store, new Set(ALL_PROFILES), new Set(ALL_REGISTRATIONS), LAX_MODES),
     store,
+    modes,
     declared,
     declaredRegistrations: acceptedRegistrations,
   };
@@ -320,6 +396,9 @@ function memoryDriver(
       chargePoints: {
         securityProfiles: declared,
         ...(declaredRegistrations ? { registrations: new Set(declaredRegistrations) } : {}),
+        // Declared explicitly so the suite reads the declaration, not a default.
+        basicAuthPassword: modes.password as "supplied" | "generated",
+        description: modes.description as "optional" | "required",
       },
     },
     operations16: { execute: async () => "" },
@@ -612,6 +691,157 @@ const FLAWS: Readonly<Record<string, FlawCase>> = {
     registrations: ["Accepted"],
     admin: appliesBeforeRefusingRegistration((patch) => ({ security: patch.security })),
   },
+  // Part 9: a CSMS-generated password.
+  "generated-password-not-returned": {
+    refusedFor: RULE.generatedPasswordReturned,
+    modes: { password: "generated" },
+    admin: ({ strict }) => ({
+      create: async (definition) => void (await strict.create(definition)),
+    }),
+  },
+  "generated-password-not-returned-on-rotation": {
+    refusedFor: RULE.generatedPasswordReturned,
+    modes: { password: "generated" },
+    admin: ({ strict }) => ({
+      update: async (cpId, patch) => void (await strict.update(cpId, patch)),
+    }),
+  },
+  "password-returned-when-supplied": {
+    refusedFor: RULE.noPasswordUnlessGenerated,
+    admin: ({ strict }) => ({
+      create: async (definition) => {
+        await strict.create(definition);
+        return { generatedBasicAuthPassword: "invented" };
+      },
+    }),
+  },
+  "password-returned-by-every-update": {
+    refusedFor: RULE.noPasswordUnlessGenerated,
+    modes: { password: "generated" },
+    admin: ({ strict }) => ({
+      update: async (cpId, patch) => {
+        await strict.update(cpId, patch);
+        return { generatedBasicAuthPassword: "again" };
+      },
+    }),
+  },
+  "password-returned-for-profile-0": {
+    refusedFor: RULE.noPasswordUnlessGenerated,
+    modes: { password: "generated" },
+    admin: ({ strict }) => ({
+      create: async (definition) => {
+        const provisioned = await strict.create(definition);
+        return provisioned ?? { generatedBasicAuthPassword: "for-nothing" };
+      },
+    }),
+  },
+  "password-returned-under-another-name": {
+    refusedFor: RULE.passwordWriteOnly,
+    modes: { password: "generated" },
+    admin: ({ strict }) => ({
+      create: async (definition) => {
+        const provisioned = await strict.create(definition);
+        return (
+          provisioned && ({ ...provisioned, basicAuthPassword: "x" } as ChargePointProvisioned)
+        );
+      },
+    }),
+  },
+  "generated-password-read-back": {
+    refusedFor: RULE.passwordWriteOnly,
+    modes: { password: "generated" },
+    admin: ({ strict, store }) => ({
+      get: async (cpId) => {
+        const details = await strict.get(cpId);
+        return (
+          details &&
+          ({
+            ...details,
+            generatedBasicAuthPassword: store.get(cpId)?.basicAuthPassword,
+          } as ChargePointDetails)
+        );
+      },
+    }),
+  },
+  "create-takes-supplied-password-when-generated": {
+    refusedFor: RULE.passwordModeBinds,
+    modes: { password: "generated" },
+    admin: ({ lax }) => ({ create: (definition) => lax.create(definition) }),
+  },
+  "update-takes-supplied-password-when-generated": {
+    refusedFor: RULE.passwordModeBinds,
+    modes: { password: "generated" },
+    admin: ({ lax }) => ({ update: (cpId, patch) => lax.update(cpId, patch) }),
+  },
+  "create-takes-no-password-when-supplied": {
+    refusedFor: RULE.passwordModeBinds,
+    admin: ({ lax }) => ({ create: (definition) => lax.create(definition) }),
+  },
+  "update-takes-no-password-when-supplied": {
+    refusedFor: RULE.passwordModeBinds,
+    admin: ({ lax }) => ({ update: (cpId, patch) => lax.update(cpId, patch) }),
+  },
+  "refused-password-mode-create-stores": {
+    refusedFor: RULE.refusedPasswordModeChangesNothing,
+    modes: { password: "generated" },
+    admin: (ref) => ({ create: createAnyway(ref) }),
+  },
+  "refused-password-mode-update-applies-description": {
+    refusedFor: RULE.refusedPasswordModeChangesNothing,
+    admin: ({ strict, lax }) => ({
+      update: async (cpId, patch) => {
+        if (patch.security && suppliedBasicAuthPassword(patch.security) === undefined)
+          await lax.update(cpId, { description: patch.description });
+        await strict.update(cpId, patch);
+      },
+    }),
+  },
+  // Part 10: a required description.
+  "create-without-required-description": {
+    refusedFor: RULE.requiredDescriptionOnCreate,
+    modes: { description: "required" },
+    admin: ({ strict, lax }) => ({
+      create: (definition) =>
+        (definition.description === undefined ? lax : strict).create(definition),
+    }),
+  },
+  "create-with-blank-required-description": {
+    refusedFor: RULE.requiredDescriptionOnCreate,
+    modes: { description: "required" },
+    admin: ({ strict, lax }) => ({
+      create: (definition) =>
+        (definition.description?.trim() === "" ? lax : strict).create(definition),
+    }),
+  },
+  "refused-required-description-create-stores": {
+    refusedFor: RULE.requiredDescriptionOnCreate,
+    modes: { description: "required" },
+    admin: (ref) => ({ create: createAnyway(ref) }),
+  },
+  "update-clears-required-description": {
+    refusedFor: RULE.requiredDescriptionKept,
+    modes: { description: "required" },
+    admin: ({ strict, lax }) => ({
+      update: (cpId, patch) => (patch.description === null ? lax : strict).update(cpId, patch),
+    }),
+  },
+  "update-blanks-required-description": {
+    refusedFor: RULE.requiredDescriptionKept,
+    modes: { description: "required" },
+    admin: ({ strict, lax }) => ({
+      update: (cpId, patch) => (patch.description === "" ? lax : strict).update(cpId, patch),
+    }),
+  },
+  "refused-required-description-update-clears": {
+    refusedFor: RULE.requiredDescriptionKept,
+    modes: { description: "required" },
+    admin: ({ strict, lax }) => ({
+      update: async (cpId, patch) => {
+        if (patch.description === null) await lax.update(cpId, patch);
+        await strict.update(cpId, patch);
+      },
+    }),
+  },
 };
 
 // The reference conforms under every shape of declaration the checks branch
@@ -648,6 +878,29 @@ for (const registrations of REGISTRATION_DECLARATIONS) {
     violations.length === 0,
     `the reference driver conforms declaring registrations ${registrations?.join(",") ?? "none"} (violations: ${violations.join("; ")})`,
   );
+}
+// ... and under every combination of the password and description declarations.
+for (const password of ["supplied", "generated"] as const) {
+  for (const description of ["optional", "required"] as const) {
+    for (const declares of [[0, 1], [1], [0], [2, 3], ALL_PROFILES] as const) {
+      const driver = memoryDriver(undefined, declares, undefined, { password, description });
+      const report = await chargePointAdminConformance(driver);
+      check(
+        report.failed.length === 0,
+        `the reference conforms declaring ${password} passwords, ${description} description, profiles ${declares.join(",")} (violations: ${report.failed.map((failure) => failure.rule).join("; ")})`,
+      );
+      const skipped = report.skipped.map((skip) => skip.rule as string);
+      const hasPassworded = declares.some((profile) => profile === 1 || profile === 2);
+      check(
+        report.passed.includes(RULE.generatedPasswordReturned) ===
+          (password === "generated" && hasPassworded) &&
+          report.passed.includes(RULE.requiredDescriptionOnCreate) ===
+            (description === "required") &&
+          skipped.includes(RULE.passwordModeBinds) === !hasPassworded,
+        `the password and description rules are asked exactly when declared (${password}, ${description}, ${declares.join(",")})`,
+      );
+    }
+  }
 }
 // Part 8, the report: a rule that depends on something the driver does not
 // declare is SKIPPED with a reason -- neither passed nor failed -- and every
@@ -879,6 +1132,27 @@ await row("control", async () => {
     fake.authenticates("CP-155", OLD_PASSWORD),
     "control: a downgrade posting an empty password leaves the old one able to authenticate",
   );
+});
+
+// SteVe declares supplied passwords: a profile 1 or 2 without one is refused
+// with UnsupportedOperationError, before anything is posted.
+await row("the generated-password row", async () => {
+  const fake = fakeSteveManager();
+  const admin = steveAdmin(fake);
+  await admin.create({ id: "CP-GEN", security: { profile: 1, basicAuthPassword: OLD_PASSWORD } });
+  const before = fake.posts.length;
+  check(
+    (await rejectsWith(
+      () => admin.create({ id: "CP-GEN-2", security: { profile: 1 } }),
+      UnsupportedOperationError,
+    )) &&
+      (await rejectsWith(
+        () => admin.update("CP-GEN", { security: { profile: 2 } }),
+        UnsupportedOperationError,
+      )),
+    "SteVe refuses a passwordless profile 1 or 2 as unsupported",
+  );
+  check(fake.posts.length === before, "SteVe posts nothing for a generated-password request");
 });
 
 // A refusal is SteVe answering: a plain Error carrying the page's error list,

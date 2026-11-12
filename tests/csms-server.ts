@@ -9,7 +9,7 @@
  * holds. The handler is a pure `(Request) => Promise<Response>`, so every row
  * hands it requests directly.
  *
- * PROPERTY, in 7 parts (numbered from 2: part 1, the TCK's `csms-server`
+ * PROPERTY, in 8 parts (numbered from 2: part 1, the TCK's `csms-server`
  * daemon, stayed in open-ocpp-tck with the command):
  *  2. ONE REQUEST, ONE DRIVER CALL. A lifecycle request reaches the matching
  *     `chargePoints` method once, with the decoded argument; an operation
@@ -46,6 +46,14 @@
  *  7. THE DESCRIPTION IS DECLARATIVE. `GET /v1/driver` reports identity and
  *     capabilities and nothing else, and only an admin surface that is both
  *     declared and present.
+ *  9. A GENERATED PASSWORD IS RETURNED ONCE, BY THE WRITE. A driver declaring
+ *     `basicAuthPassword: "generated"` has a passwordless profile 1 or 2
+ *     forwarded as such and a supplied one refused (and the reverse for
+ *     "supplied") with 501 before the driver is called; the password a write
+ *     returns is `{generatedBasicAuthPassword}` beside the `201` id, or a `200`
+ *     in place of the PATCH `204`, `no-store`, never logged, never read back by
+ *     GET. `description: "required"` refuses (400) a create without a
+ *     non-blank one and an update clearing or blanking it.
  *  8. A BROWSER CANNOT DRIVE IT. The daemon has no authentication, so a page
  *     the operator visits must not be able to reach it: a request carrying an
  *     `Origin` header -- which a browser sends on every cross-origin POST,
@@ -67,6 +75,7 @@ import {
   UnsupportedOperationError,
   type ChargePointDefinition,
   type ChargePointDetails,
+  type ChargePointProvisioned,
   type ChargePointRegistration,
   type ChargePointSecurityProfile,
   type ChargePointUpdate,
@@ -105,6 +114,10 @@ interface FakeOptions {
   profiles?: readonly ChargePointSecurityProfile[];
   /** Declared registrations; omitted declares nothing, which means all three. */
   registrations?: readonly ChargePointRegistration[];
+  basicAuthPassword?: "supplied" | "generated";
+  description?: "optional" | "required";
+  /** What `create` and `update` resolve with. */
+  provisioned?: ChargePointProvisioned;
   /** Thrown (or, for "hang", never settled) by every driver call. */
   fail?: Error | "hang";
   stored?: ChargePointDetails;
@@ -127,6 +140,10 @@ function fakeDriver(options: FakeOptions = {}): { driver: CsmsDriver; seen: Reco
             chargePoints: {
               securityProfiles: new Set<ChargePointSecurityProfile>(options.profiles ?? [0, 1]),
               ...(options.registrations ? { registrations: new Set(options.registrations) } : {}),
+              ...(options.basicAuthPassword
+                ? { basicAuthPassword: options.basicAuthPassword }
+                : {}),
+              ...(options.description ? { description: options.description } : {}),
             },
           }
         : {}),
@@ -142,7 +159,7 @@ function fakeDriver(options: FakeOptions = {}): { driver: CsmsDriver; seen: Reco
           chargePoints: {
             async create(definition: ChargePointDefinition) {
               seen.admin.push({ method: "create", args: [definition] });
-              return outcome(undefined);
+              return outcome(options.provisioned);
             },
             async get(cpId: string) {
               seen.admin.push({ method: "get", args: [cpId] });
@@ -151,7 +168,7 @@ function fakeDriver(options: FakeOptions = {}): { driver: CsmsDriver; seen: Reco
             },
             async update(cpId: string, patch: ChargePointUpdate) {
               seen.admin.push({ method: "update", args: [cpId, patch] });
-              return outcome(undefined);
+              return outcome(options.provisioned);
             },
             async delete(cpId: string) {
               seen.admin.push({ method: "delete", args: [cpId] });
@@ -915,10 +932,16 @@ const INPUT_REFUSALS: [string, string, string, unknown][] = [
     { keys: "HeartbeatInterval" },
   ],
   [
-    "profile 1 without a password",
+    "profile 1 with an empty password",
     "POST",
     "/v1/charge-points",
-    { id: "CP-9", security: { profile: 1 } },
+    { id: "CP-9", security: { profile: 1, basicAuthPassword: "" } },
+  ],
+  [
+    "a null password",
+    "POST",
+    "/v1/charge-points",
+    { id: "CP-9", security: { profile: 1, basicAuthPassword: null } },
   ],
   [
     "profile 0 with a password",
@@ -1037,6 +1060,8 @@ await expectError(
         chargePoints: {
           securityProfiles: [0, 1],
           registrations: ["Accepted", "Pending", "Rejected"],
+          basicAuthPassword: "supplied",
+          description: "optional",
         },
         commands: null,
       }),
@@ -1050,6 +1075,15 @@ await expectError(
       JSON.stringify(["Accepted", "Rejected"]),
     `declared registrations are described as a sorted array: ${accepted.text}`,
   );
+  const declared = await exchange("GET", "/v1/driver", undefined, {
+    basicAuthPassword: "generated",
+    description: "required",
+  });
+  const chargePoints = declared.body?.chargePoints as Record<string, unknown> | undefined;
+  check(
+    chargePoints?.basicAuthPassword === "generated" && chargePoints?.description === "required",
+    `the declared password and description modes are described: ${declared.text}`,
+  );
   const bare = await exchange("GET", "/v1/driver", undefined, { admin: false });
   check(bare.body?.chargePoints === null, `no admin surface reads as null: ${bare.text}`);
   const hollow = await exchange("GET", "/v1/driver", undefined, {
@@ -1059,6 +1093,183 @@ await expectError(
   check(
     hollow.body?.chargePoints === null,
     `a declaration without the surface reads as null: ${hollow.text}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Part 9 -- a CSMS-generated password is returned once, by the write only.
+// ---------------------------------------------------------------------------
+
+const GENERATED = { generatedBasicAuthPassword: "csms-made-pw-456" };
+const GENERATING = {
+  basicAuthPassword: "generated",
+  provisioned: GENERATED,
+  profiles: [0, 1, 2],
+} as const;
+
+{
+  const ex = await exchange(
+    "POST",
+    "/v1/charge-points",
+    { id: "CP-9", security: { profile: 1 } },
+    GENERATING,
+  );
+  check(ex.status === 201, `a generated create answers 201, got ${ex.status} (${ex.text})`);
+  check(
+    JSON.stringify(ex.body) === JSON.stringify({ id: "CP-9", ...GENERATED }),
+    `a generated create answers the id and the password: ${ex.text}`,
+  );
+  check(
+    Bun.deepEquals(
+      ex.seen.admin,
+      [{ method: "create", args: [{ id: "CP-9", security: { profile: 1 } }] }],
+      true,
+    ),
+    `a passwordless security reaches the driver as such: ${JSON.stringify(ex.seen.admin)}`,
+  );
+  check(
+    ex.headers.get("cache-control") === "no-store",
+    "a response carrying a password is no-store",
+  );
+  check(
+    !ex.log.join("\n").includes(GENERATED.generatedBasicAuthPassword),
+    "the log never carries a generated password",
+  );
+}
+
+{
+  const ex = await exchange("POST", "/v1/charge-points", { id: "CP-9" });
+  check(
+    JSON.stringify(ex.body) === JSON.stringify({ id: "CP-9" }) &&
+      ex.headers.get("cache-control") === null,
+    `a create that generated nothing answers {id} alone: ${ex.text}`,
+  );
+}
+
+{
+  const ex = await exchange(
+    "PATCH",
+    "/v1/charge-points/CP-9",
+    { security: { profile: 2 } },
+    GENERATING,
+  );
+  check(ex.status === 200, `a rotating update answers 200, got ${ex.status} (${ex.text})`);
+  check(
+    JSON.stringify(ex.body) === JSON.stringify(GENERATED) &&
+      ex.headers.get("cache-control") === "no-store",
+    `a rotating update answers the new password: ${ex.text}`,
+  );
+  check(
+    !ex.log.join("\n").includes(GENERATED.generatedBasicAuthPassword),
+    "the log never carries a rotated password",
+  );
+  const quiet = await exchange(
+    "PATCH",
+    "/v1/charge-points/CP-9",
+    { description: "x" },
+    {
+      basicAuthPassword: "generated",
+    },
+  );
+  check(quiet.status === 204, `an update that generated nothing stays 204, got ${quiet.status}`);
+}
+
+{
+  const stored: ChargePointDetails = {
+    id: "CP-9",
+    registration: "Accepted",
+    security: { profile: 1 },
+  };
+  const ex = await exchange("GET", "/v1/charge-points/CP-9", undefined, {
+    ...GENERATING,
+    stored: { ...stored, generatedBasicAuthPassword: "from-get" } as ChargePointDetails,
+  });
+  check(!ex.text.includes("from-get"), "get never returns a generated password");
+}
+
+await expectError(
+  "a supplied password to a driver that generates",
+  501,
+  "unsupported_capability",
+  () =>
+    exchange(
+      "POST",
+      "/v1/charge-points",
+      { id: "CP-9", security: { profile: 1, basicAuthPassword: "mine-mine" } },
+      GENERATING,
+    ),
+  false,
+);
+await expectError(
+  "a supplied password update to a driver that generates",
+  501,
+  "unsupported_capability",
+  () =>
+    exchange(
+      "PATCH",
+      "/v1/charge-points/CP-9",
+      { security: { profile: 1, basicAuthPassword: "mine-mine" } },
+      GENERATING,
+    ),
+  false,
+);
+await expectError(
+  "a passwordless security to a driver that expects one",
+  501,
+  "unsupported_capability",
+  () => exchange("POST", "/v1/charge-points", { id: "CP-9", security: { profile: 1 } }),
+  false,
+);
+await expectError(
+  "a passwordless security update to a driver that expects one",
+  501,
+  "unsupported_capability",
+  () => exchange("PATCH", "/v1/charge-points/CP-9", { security: { profile: 2 } }),
+  false,
+);
+
+// A required description: create needs one, update neither clears nor blanks it.
+const REQUIRED = { description: "required" } as const;
+for (const [label, definition] of [
+  ["absent", { id: "CP-9" }],
+  ["blank", { id: "CP-9", description: "   " }],
+] as const) {
+  await expectError(
+    `a create with a ${label} description to a driver requiring one`,
+    400,
+    "invalid_input",
+    () => exchange("POST", "/v1/charge-points", definition, REQUIRED),
+    false,
+  );
+}
+for (const [label, patch] of [
+  ["null", { description: null }],
+  ["blank", { description: "" }],
+] as const) {
+  await expectError(
+    `an update with a ${label} description to a driver requiring one`,
+    400,
+    "invalid_input",
+    () => exchange("PATCH", "/v1/charge-points/CP-9", patch, REQUIRED),
+    false,
+  );
+}
+{
+  const created = await exchange(
+    "POST",
+    "/v1/charge-points",
+    { id: "CP-9", description: "bay" },
+    REQUIRED,
+  );
+  const untouched = await exchange(
+    "PATCH",
+    "/v1/charge-points/CP-9",
+    { registration: "Pending" },
+    REQUIRED,
+  );
+  check(
+    created.status === 201 && untouched.status === 204,
+    `a required description is satisfied by one, and an update not naming it is unaffected: ${created.status}/${untouched.status}`,
   );
 }
 

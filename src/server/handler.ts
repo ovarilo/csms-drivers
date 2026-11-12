@@ -32,6 +32,7 @@
  */
 import {
   ChargePointNotFoundError,
+  suppliedBasicAuthPassword,
   type ChargePointRegistration,
   type ChargePointSecurity,
 } from "../charge-points.ts";
@@ -40,6 +41,7 @@ import type { CsmsDriver } from "../models.ts";
 import {
   decodeChargePointDefinition,
   decodeChargePointUpdate,
+  encodeChargePointProvisioned,
   encodeChargePointDetails,
 } from "./charge-points.ts";
 import { InvalidInputError } from "./decode.ts";
@@ -75,6 +77,9 @@ export const DEFAULT_TIMEOUT_MS = 60_000;
 export const MAX_TIMEOUT_MS = 2_147_483_647;
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
+
+/** A response that may carry a generated password must not be kept by a cache. */
+const NO_STORE = { "cache-control": "no-store" };
 
 function json(
   status: number,
@@ -169,8 +174,37 @@ function sortedRegistrations(
 }
 
 function rememberPassword(security: ChargePointSecurity | undefined, secrets: string[]): void {
-  if (security && "basicAuthPassword" in security) secrets.push(security.basicAuthPassword);
+  const password = security && suppliedBasicAuthPassword(security);
+  if (password !== undefined) secrets.push(password);
 }
+
+/** Likewise for who chooses the Basic Auth password: a profile 1 or 2 that
+ *  supplies one where the CSMS generates them, or none where the caller must. */
+function checkPasswordMode(
+  security: ChargePointSecurity | undefined,
+  mode: "supplied" | "generated",
+): void {
+  if (security === undefined || (security.profile !== 1 && security.profile !== 2)) return;
+  const supplied = suppliedBasicAuthPassword(security) !== undefined;
+  if (mode === "generated" && supplied) {
+    throw new CsmsHttpError(
+      501,
+      "unsupported_capability",
+      "this driver generates the Basic Auth password: send security without basicAuthPassword",
+    );
+  }
+  if (mode === "supplied" && !supplied) {
+    throw new CsmsHttpError(
+      501,
+      "unsupported_capability",
+      "this driver does not generate the Basic Auth password: send security.basicAuthPassword",
+    );
+  }
+}
+
+/** A description is blank when it is empty or only whitespace. */
+const isBlank = (description: string | null | undefined): boolean =>
+  description === undefined || description === null || description.trim() === "";
 
 export function createCsmsHttpHandler(
   driver: CsmsDriver,
@@ -196,6 +230,8 @@ export function createCsmsHttpHandler(
           declared: capabilities.chargePoints.securityProfiles,
           // Absent means all three.
           registrations: capabilities.chargePoints.registrations ?? ALL_REGISTRATIONS,
+          basicAuthPassword: capabilities.chargePoints.basicAuthPassword ?? "supplied",
+          description: capabilities.chargePoints.description ?? "optional",
         }
       : undefined;
   // Both halves again. Polling is the declaration AND the method: either alone
@@ -221,6 +257,8 @@ export function createCsmsHttpHandler(
       ? {
           securityProfiles: [...admin.declared].sort((a, b) => a - b),
           registrations: sortedRegistrations(admin.registrations),
+          basicAuthPassword: admin.basicAuthPassword,
+          description: admin.description,
         }
       : null,
     commands: commands
@@ -315,16 +353,26 @@ export function createCsmsHttpHandler(
 
     if (cpId === undefined) {
       if (method !== "POST") methodNotAllowed("POST");
-      const { chargePoints, declared, registrations } = requireAdmin();
+      const { chargePoints, declared, registrations, basicAuthPassword, description } =
+        requireAdmin();
       const definition = decodeChargePointDefinition(await readBody(request));
       rememberPassword(definition.security, secrets);
       // An omitted security is profile 0, and profile 0 is a profile too.
       checkProfile(definition.security?.profile ?? 0, declared);
       // An omitted registration is Accepted, which every declaration contains.
       checkRegistration(definition.registration, registrations);
-      await call(() => chargePoints.create(definition));
+      checkPasswordMode(definition.security, basicAuthPassword);
+      if (description === "required" && isBlank(definition.description)) {
+        throw new InvalidInputError("body.description is required by this driver");
+      }
+      const provisioned = await call(() => chargePoints.create(definition));
       const location = `/v1/charge-points/${encodeURIComponent(definition.id)}`;
-      return json(201, { id: definition.id }, { location });
+      const generated = encodeChargePointProvisioned(provisioned);
+      return json(
+        201,
+        { id: definition.id, ...generated },
+        { location, ...(generated ? NO_STORE : {}) },
+      );
     }
     if (cpId === "") noRoute();
 
@@ -332,7 +380,8 @@ export function createCsmsHttpHandler(
       // 405 before 501: a method this route never serves is wrong whatever the driver.
       if (method !== "GET" && method !== "PATCH" && method !== "DELETE")
         methodNotAllowed("GET, PATCH, DELETE");
-      const { chargePoints, declared, registrations } = requireAdmin();
+      const { chargePoints, declared, registrations, basicAuthPassword, description } =
+        requireAdmin();
       if (method === "GET") {
         const details = await call(() => chargePoints.get(cpId));
         if (!details) throw new ChargePointNotFoundError(cpId);
@@ -343,8 +392,17 @@ export function createCsmsHttpHandler(
         rememberPassword(update.security, secrets);
         checkProfile(update.security?.profile, declared);
         checkRegistration(update.registration, registrations);
-        await call(() => chargePoints.update(cpId, update));
-        return new Response(null, { status: 204 });
+        checkPasswordMode(update.security, basicAuthPassword);
+        if (description === "required" && update.description !== undefined) {
+          if (isBlank(update.description)) {
+            throw new InvalidInputError(
+              "body.description must not be cleared or blank: this driver requires one",
+            );
+          }
+        }
+        const provisioned = await call(() => chargePoints.update(cpId, update));
+        const generated = encodeChargePointProvisioned(provisioned);
+        return generated ? json(200, generated, NO_STORE) : new Response(null, { status: 204 });
       }
       await call(() => chargePoints.delete(cpId));
       return new Response(null, { status: 204 });
