@@ -328,6 +328,79 @@ did not run: poll first where the driver can, otherwise ask the station for
 its state. What a UI should show for each state and which operations are safe
 to repeat are in [`src/server/README.md`](src/server/README.md#command-outcomes).
 
+## Conformance
+
+`@ovarilo/csms-drivers/conformance` holds the suites this repository holds its
+own drivers to, so a third-party driver (or the same driver against a real
+CSMS) is held to the same rules. They are plain functions over a
+`CsmsDriver`, with no test runner and no dependency; each returns a
+`ConformanceReport`:
+
+```ts
+import {
+  chargePointAdminConformance,
+  commandsConformance,
+  conformanceHolds,
+  operationsConformance,
+} from "@ovarilo/csms-drivers/conformance";
+
+const report = await operationsConformance(driver, { cpId: "CP-1" });
+if (!conformanceHolds(report)) throw new Error(JSON.stringify(report.failed, null, 2));
+console.log(`${report.passed.length} passed, ${report.skipped.length} skipped`);
+```
+
+### Reading a report
+
+- `passed`: the rule was asked and the driver met it.
+- `failed`: the rule was asked and the driver broke it; `detail` says how.
+- `skipped`: the rule depends on something the driver does not declare, or on
+  a fixture the caller did not supply; `reason` says which. A skipped rule is
+  **not** a passed one: `conformanceHolds` is true when nothing failed, so also
+  read `passed` and `skipped` before calling a driver conformant. A driver
+  with no `commands` has every `commandsConformance` rule skipped.
+
+Every rule of a suite appears in exactly one list.
+
+### What each suite asks
+
+All three are capability-driven: they read `driver.capabilities` and ask only
+what the driver claims, plus whether the claim is true.
+
+- `operationsConformance(driver, { cpId, operations16?, operations201? })`:
+  for each OCPP 1.6 and 2.0.1 action, `execute` with a fixture operation. A
+  declared action must not throw `UnsupportedOperationError`; an undeclared
+  one must throw it, and nothing else (a falsely declared capability, or an
+  undeclared one that works, fails). A declared action failing with
+  `CsmsNotDispatchedError` or a plain `Error` does not disprove the
+  declaration. `SAMPLE_OPERATIONS_16` and `SAMPLE_OPERATION_201` are the
+  default fixtures; pass `operations16` to override an action, and leave one
+  out to have its rule skipped. Point it at a fake transport: it runs the real
+  `execute`.
+- `commandsConformance(driver, { cpId, scenarios })`: `commands` exists
+  exactly when `capabilities.commands` is declared, and `poll` exactly when
+  `polling` is; every verdict is returned as a value in the expected state;
+  a timeout is `unknown`, never `failed`; an `accepted`-completion driver never
+  reports `confirmed`; `poll` answers a submitted ref and `null` for a
+  stranger. The suite cannot make a CSMS refuse or time out: each scenario
+  (`accepted`, `confirmed`, `rejected`, `unknown`, `timeout`) is an operation
+  and an optional `arrange` step where you steer your fake transport.
+  `submit201` follows the same contract and is not asked yet.
+- `chargePointAdminConformance(driver)`: the administration contract above.
+  It creates stations named `CONFORMANCE-n`; against a live CSMS run
+  `clearConformanceStations(driver.chargePoints)` first.
+  `chargePointAdminViolations(driver)` is the failed rules only.
+
+### Not applicable yet
+
+Stated here rather than invented as tests:
+
+- **Pagination.** No contract has a paged read, so there is nothing to ask.
+  Skipped by design until a paged surface lands (ovarilo/csms-drivers#10).
+- **Observations.** Same: no observation surface exists yet.
+- **Timestamps.** The only timestamp in the contracts is `CommandOutcome.at`;
+  `commandsConformance` checks it is an ISO 8601 instant and nothing about
+  its value. Ordering and clock rules wait for the observation surface.
+
 ## Development
 
 ```sh

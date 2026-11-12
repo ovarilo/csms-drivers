@@ -9,9 +9,10 @@
  * which CSMS it is talking to. That only works if every driver answers the
  * edge cases alike, so the contract states them and this guard holds a driver
  * to them through `chargePointAdminViolations`, which takes nothing but a
- * `CsmsDriver`. It lives in tests/lib/charge-point-conformance.ts because a
- * live caller cannot import this file, which runs on import:
- * `tools/steve-charge-points.ts` asks it of the pinned SteVe.
+ * `CsmsDriver`. It lives in src/conformance/charge-points.ts, published as
+ * `@ovarilo/csms-drivers/conformance`, because a live caller cannot import
+ * this file, which runs on import: `tools/steve-charge-points.ts` asks it of
+ * the pinned SteVe.
  *
  * PROPERTY, in 7 parts:
  *  1. DECLARED EXACTLY WHEN IMPLEMENTED. `capabilities.chargePoints` is
@@ -109,7 +110,7 @@ import {
   RULE,
   securityFor,
   type Rule,
-} from "./lib/charge-point-conformance";
+} from "@ovarilo/csms-drivers/conformance";
 import {
   ChargePointAlreadyExistsError,
   ChargePointNotFoundError,

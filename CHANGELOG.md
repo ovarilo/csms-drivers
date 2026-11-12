@@ -23,6 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   status is refused with `UnsupportedOperationError` and changes nothing, `get` never returns
   one, and the HTTP description lists them as `chargePoints.registrations` (an undeclared one on
   `POST`/`PATCH` answers `501 unsupported_capability`). SteVe declares all three.
+- `@ovarilo/csms-drivers/conformance`: the conformance suites as a published subpath, with no
+  test-runner dependency. `chargePointAdminConformance` (moved from `tests/lib`),
+  `operationsConformance` (every declared 1.6 and 2.0.1 action must not be refused as
+  unsupported, every undeclared one must be; `SAMPLE_OPERATIONS_16` as default fixtures) and
+  `commandsConformance` (the `commands` surface: outcomes as values, a timeout as `unknown`,
+  polling). Each returns a `ConformanceReport` with `passed`, `failed` and `skipped` rules; a
+  rule the driver's declaration makes not applicable is skipped with a reason, never passed.
+  Pagination, observations and timestamps are documented as not applicable until their surfaces
+  land.
 - Drive a Codetics ev-server-lite CSMS with `createCodeticsEvServerLiteCsmsDriver`: every OCPP
   1.6 operation goes through its REST command endpoint, and `execute()` resolves once the
   command was written to the station. Ported from open-ocpp-tck's
@@ -46,6 +55,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `@ovarilo/csms-drivers/citrineos/{api-client,config,http,requests,variant}`.
 - `STEVE_CAPABILITIES` is exported from the package root, beside `createSteveCsmsDriver`, as
   `citrineOsCapabilities` already was.
+
+### Changed
+
+- The charge-point conformance suite reports through a `ConformanceReport`.
+  `updateAppliesRegistration` and `updateAppliesSecurity` are now `skipped` when the declaration
+  leaves no status or profile to move to, where the first used to pass vacuously and the second
+  went unreported.
+  `chargePointAdminViolations` returns the failed rules only: a skipped rule is not a violation,
+  and a lifecycle that threw is one violation naming the error.
+- `tests/lib/charge-point-conformance.ts` is removed; import from
+  `@ovarilo/csms-drivers/conformance`.
 
 ### Fixed
 
