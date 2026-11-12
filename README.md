@@ -310,7 +310,7 @@ What a `2xx` or a `CALLRESULT` means depends on the driver, and
 | Driver | `completion` | `polling` | What `submit16` reports |
 | --- | --- | --- | --- |
 | Codetics ev-server-lite | `confirmed` | yes | The command is followed to the station's answer: `confirmed` with the `CALLRESULT`, `rejected` for `Rejected`/`NotSupported`, `failed` for a `CALLERROR`. `SENT` still unanswered after `dispatchTimeoutMs`, or the server's own `TIMED_OUT` after `SENT`, is `unknown` (`timeout`). `poll(ref)` re-reads it by command id. |
-| EVtivity | `confirmed` | no | The route blocks, so the station's answer is the HTTP answer: `confirmed`, `rejected` or `failed` (a `502` `CALLERROR`). A `504`, the driver's own `dispatchTimeoutMs` expiring, or an aborted wait is `unknown`. There is no ref to poll. |
+| EVtivity | `confirmed` | no | The route blocks, so the station's answer is the HTTP answer: `confirmed`, `rejected` or `failed` (a `502` `CALLERROR`). A `504`, a `502` `Connection closed`, the driver's own `dispatchTimeoutMs` expiring, or an aborted wait is `unknown`. There is no ref to poll. |
 | SteVe | `accepted` | no | A form SteVe accepted is `accepted`, without a ref. The station's answer is never read, so `accepted` is never `confirmed`. |
 | CitrineOS | `accepted` | no | A message the API accepted is `accepted`, without a ref (`submit201` too, on `variant: "v2"`; `v1` has no `submit201`). Never `confirmed`. |
 

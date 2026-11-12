@@ -389,6 +389,10 @@ const REFUSING_STATUSES: readonly string[] = ["Rejected", "NotSupported"];
  *   200, any other answer              confirmed, `response` the station's payload
  *   502 CALLERROR / Invalid CALLRESULT failed: the station answered with an error
  *   504 Timeout waiting for response   unknown (timeout): the CALL left, no answer
+ *   504 any other, `No response within 35s`
+ *                                      unknown (timeout): the CALL may have left
+ *   502 Connection closed              unknown (connection-lost): dropped or sent,
+ *                                      nobody can tell which
  *   our own deadline or a caller abort unknown: the request may have left, so
  *                                      never `failed`; a caller abort is
  *                                      `no-evidence`
@@ -437,6 +441,14 @@ export async function submitOperation(
     return res.status === 504
       ? { state: "unknown", at, cause: "timeout", detail }
       : { state: "failed", at, detail };
+  }
+  // The CALL may have left: `execute` files these under not-dispatched (it
+  // cannot tell), but a value can say "unknown" instead.
+  if (res.status === 504 && typeof err.error === "string") {
+    return { state: "unknown", at, cause: "timeout", detail: preview(err.error) };
+  }
+  if (res.status === 502 && err.error === "Connection closed") {
+    return { state: "unknown", at, cause: "connection-lost", detail: preview(err.error) };
   }
   return refuse(res, op, what);
 }
