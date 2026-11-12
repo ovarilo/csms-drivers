@@ -1300,6 +1300,92 @@ export interface CsmsOperations201 {
 }
 
 // ---------------------------------------------------------------------------
+// Command outcomes
+// ---------------------------------------------------------------------------
+
+/** Opaque, driver-defined correlation handle for one submitted command. */
+export type CommandRef = string;
+
+/**
+ * What is known about one command, as a VALUE. A CSMS or station verdict is
+ * never thrown: `rejected`, `failed` and `unknown` are outcomes, so a caller
+ * branches on `state` instead of parsing an exception.
+ *
+ * - `unsupported`: the CSMS cannot express the command; nothing was sent.
+ * - `rejected`: the CSMS or the station refused it (CALLRESULT status
+ *   Rejected/NotSupported, a CSMS 4xx).
+ * - `accepted`: dispatched or queued. The station's answer is NOT known.
+ * - `confirmed`: the station's CALLRESULT was observed. `response` is the
+ *   station's payload, redacted by whoever serves it.
+ * - `failed`: a CALLERROR, or the command failed after dispatch.
+ * - `unknown`: no evidence either way. A TIMEOUT after dispatch is always
+ *   `unknown` (`cause: "timeout"`), never `failed`: the station may still have
+ *   acted, so a caller that retries on it must know the operation is
+ *   idempotent.
+ *
+ * `at` is an ISO 8601 instant: when the driver learned this state.
+ */
+export type CommandOutcome =
+  | { readonly state: "unsupported"; readonly reason: string }
+  | { readonly state: "rejected"; readonly at: string; readonly detail?: string }
+  | { readonly state: "accepted"; readonly at: string; readonly ref?: CommandRef }
+  | {
+      readonly state: "confirmed";
+      readonly at: string;
+      readonly ref?: CommandRef;
+      readonly response?: unknown;
+    }
+  | {
+      readonly state: "failed";
+      readonly at: string;
+      readonly ref?: CommandRef;
+      readonly detail?: string;
+    }
+  | {
+      readonly state: "unknown";
+      readonly at: string;
+      readonly ref?: CommandRef;
+      readonly cause: "timeout" | "connection-lost" | "no-evidence";
+      readonly detail?: string;
+    };
+
+export type CommandOutcomeState = CommandOutcome["state"];
+
+/**
+ * An optional, additive surface beside `operations16`/`operations201`, whose
+ * `execute` keeps its contract. Present exactly when
+ * {@link CsmsCapabilities.commands} is declared.
+ */
+export interface CsmsCommands {
+  /**
+   * Sends the operation and reports what is known. It does NOT throw for a
+   * CSMS or station verdict (see {@link CommandOutcome}); it still throws
+   * {@link UnsupportedOperationError} / {@link CsmsNotDispatchedError} only for
+   * evidence that no OCPP CALL was ever made, and never turns a timeout into
+   * `failed`.
+   */
+  submit(
+    cpId: string,
+    op: CsmsOperation16 | CsmsOperation201,
+    opts?: { readonly signal?: AbortSignal },
+  ): Promise<CommandOutcome>;
+  /**
+   * The current outcome of an earlier command, or `null` for a ref this driver
+   * does not know. Present exactly when `capabilities.commands.polling`.
+   */
+  poll?(ref: CommandRef): Promise<CommandOutcome | null>;
+}
+
+/** What {@link CsmsCommands} declares. */
+export interface CsmsCommandCapabilities {
+  /** The furthest state `submit` reaches on its own: `accepted` (the station's
+   *  answer is never read) or `confirmed` (it can be). */
+  readonly completion: "accepted" | "confirmed";
+  /** `CsmsCommands.poll` exists. */
+  readonly polling: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Driver packaging
 // ---------------------------------------------------------------------------
 
@@ -1339,6 +1425,11 @@ export interface CsmsCapabilities {
    * above; present, it names the security profiles that surface accepts.
    */
   readonly chargePoints?: CsmsChargePointCapabilities;
+  /**
+   * Command outcomes, `CsmsDriver.commands`. ABSENT means the driver reports
+   * none, with the same opt-in shape as the fields above.
+   */
+  readonly commands?: CsmsCommandCapabilities;
 }
 
 export type CsmsEnv = Readonly<Record<string, string | undefined>>;

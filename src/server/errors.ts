@@ -89,3 +89,16 @@ export function redact(text: string, secrets: readonly string[]): string {
     .sort((a, b) => b.length - a.length)
     .reduce((out, secret) => out.split(secret).join("[redacted]"), text);
 }
+
+/** {@link redact} over every string inside a JSON-shaped value, keys included,
+ *  so a station payload keeps its structure and loses only the secret. */
+export function redactDeep(value: unknown, secrets: readonly string[]): unknown {
+  if (typeof value === "string") return redact(value, secrets);
+  if (Array.isArray(value)) return value.map((item) => redactDeep(item, secrets));
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [redact(key, secrets), redactDeep(item, secrets)]),
+    );
+  }
+  return value;
+}

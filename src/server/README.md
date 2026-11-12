@@ -116,7 +116,8 @@ mistyped member is refused, and so is any member the model does not have.
 | `GET /v1/charge-points/{id}` | `chargePoints.get` |
 | `PATCH /v1/charge-points/{id}` | `chargePoints.update` |
 | `DELETE /v1/charge-points/{id}` | `chargePoints.delete` |
-| `POST /v1/charge-points/{id}/operations/{operation}` | `operations16.execute` |
+| `POST /v1/charge-points/{id}/operations/{operation}` | `operations16.execute`, or `commands.submit` when the driver has it |
+| `GET /v1/commands/{ref}` | `commands.poll` |
 
 `{id}` is the station's OCPP identity, percent-encoded like any other path
 segment.
@@ -139,14 +140,17 @@ administration:
     { "operation": "reset", "action": "Reset" },
     { "operation": "remote-start", "action": "RemoteStartTransaction" }
   ],
-  "chargePoints": { "securityProfiles": [0, 1, 2] }
+  "chargePoints": { "securityProfiles": [0, 1, 2] },
+  "commands": { "completion": "accepted", "polling": false }
 }
 ```
 
 `operations16` lists only the operations this driver declares. `chargePoints`
 is `null` unless the driver both declares charge-point administration and
-provides it. `protocols` is
-`null` when the driver does not say.
+provides it. `commands` is `null` unless the driver both declares command
+outcomes and provides them; `polling` is `true` only when `GET
+/v1/commands/{ref}` is served. `protocols` is `null` when the driver does not
+say.
 
 ### Provisioning a charge point
 
@@ -260,6 +264,94 @@ opaque string handles. An operation without members accepts an empty body.
 The member types and enumerations are those of `CsmsOperation16` in
 [`contracts.ts`](../contracts.ts).
 
+### Command outcomes
+
+A driver that provides the optional `commands` surface makes the same `202`
+carry what is known about the command:
+
+```http
+HTTP/1.1 202 Accepted
+
+{ "chargePointId": "CP-1", "operation": "reset", "action": "Reset", "status": "dispatched",
+  "outcome": { "state": "accepted", "at": "2030-01-02T03:04:05.000Z", "ref": "cmd-1" } }
+```
+
+`status: "dispatched"` stays for clients that predate `outcome`, and is not a
+verdict: **read `outcome.state`**. A driver without `commands` answers exactly
+as before, with no `outcome`. The server then makes one `commands.submit` call
+instead of `operations16.execute`.
+
+| `outcome.state` | meaning | fields |
+|---|---|---|
+| `unsupported` | The CSMS cannot express the command. Nothing was sent. | `reason` |
+| `rejected` | The CSMS or the station refused it. | `at`, `detail?` |
+| `accepted` | Dispatched or queued. The station's answer is **not** known. | `at`, `ref?` |
+| `confirmed` | The station's `CALLRESULT` was observed. | `at`, `ref?`, `response?` |
+| `failed` | A `CALLERROR`, or the command failed after dispatch. | `at`, `ref?`, `detail?` |
+| `unknown` | No evidence either way. | `at`, `ref?`, `cause`: `timeout` \| `connection-lost` \| `no-evidence`, `detail?` |
+
+`at` is an ISO 8601 instant. `detail` and `response` are redacted of the
+server's `secrets`, at any depth, like every other message it returns.
+
+Only the `202` carries an `outcome`. Every error keeps its status and code
+(`502`, `501`, `504`...) and has none, and a driver-side verdict such as
+`rejected` is still a `202`: an `unsupported` or `rejected` outcome does not
+change the status line.
+
+```http
+GET /v1/commands/cmd-1
+```
+
+```json
+{ "ref": "cmd-1", "outcome": { "state": "confirmed", "at": "2030-01-02T03:04:09.000Z", "ref": "cmd-1", "response": { "status": "Accepted" } } }
+```
+
+Polling exists only when `commands.polling` is `true`: otherwise the route
+answers `501 unsupported_capability`, and a `ref` the driver does not know is
+`404 not_found`. The `ref` is opaque; percent-encode it.
+
+#### What a 2xx means, per driver
+
+A `2xx` is a statement about the CSMS, never about the station, unless
+`outcome.state` is `confirmed`. `capabilities.commands.completion` is the
+furthest state `submit` reaches on its own:
+
+- `accepted`: the CSMS took the command. The station's `CALLRESULT` is never
+  read back, so a station that ignores the CALL, or answers `Rejected`, still
+  yields `accepted`. `Reset` accepted is not a reset rebooted.
+- `confirmed`: the driver can read the station's `CALLRESULT`. Even then the
+  status inside it (`Accepted`, `Rejected`, `Scheduled`) is the station's
+  answer to the request, not proof the effect happened: `Reset` `Accepted`
+  means the station will reset, not that it has.
+
+The per-driver table lives with the drivers: this release adds the contract
+only, and no bundled driver provides `commands` yet.
+
+#### Safe handling in a UI
+
+- Show `accepted` as "sent", never "done". Show `confirmed` as "the station
+  answered", and its `response` as the station's words.
+- Show `unknown` as "no answer yet", with `cause`. Never render it, or a `504
+  timeout`, as an error that implies nothing happened: the station may have
+  acted.
+- `rejected`, `failed` and `unsupported` mean it did not happen as asked:
+  those can be shown as failures.
+- Do not infer `failed` from a timeout, in either direction.
+
+#### Retrying
+
+No idempotency key is offered, so a retry is a second command.
+
+- `unknown`, `504 timeout` and `connection-lost` leave it open whether the
+  first command took effect. If the driver `polling`, poll the `ref` first
+  (when there is one) and retry only on a verdict that says it did not run.
+- Retry blind only an idempotent operation: `Reset`, `ChangeAvailability`,
+  `ChangeConfiguration`, `ClearCache`, `TriggerMessage`, `UnlockConnector`
+  are in practice safe to repeat. `RemoteStartTransaction`, `ReserveNow` and
+  `SendLocalList` are not: ask for state (`GetConfiguration`, the
+  transaction list, your own record of the `ref`) before sending them again.
+- `accepted` is not a reason to retry. Wait, then poll or observe the station.
+
 ## Errors
 
 Every error has the same body. Branch on `code`; `message` is for humans and
@@ -280,7 +372,7 @@ may change.
 | 501 | `unsupported_capability` | The driver does not declare the operation, has no charge-point administration, does not accept the security profile, or refused the request as something it cannot express. |
 | 502 | `transport_failure` | The request never reached the CSMS as an operation: the connection failed, the CSMS refused the driver's credentials, or it refused the request before dispatching it. The driver contract has no separate class for an authentication failure, so this code covers it. |
 | 502 | `csms_rejected` | The CSMS answered, but did not do what was asked, for example a form that came back with validation errors. |
-| 504 | `timeout` | The driver call did not finish within `--timeout-ms`. **The outcome is unknown**: the request may still have been dispatched. |
+| 504 | `timeout` | The driver call did not finish within `--timeout-ms`. **The outcome is unknown**: the request may still have been dispatched. It carries no `outcome`, and is never to be read as a failure. |
 | 500 | `internal` | A defect in the server itself. |
 
 ## Limits
