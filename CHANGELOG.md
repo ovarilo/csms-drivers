@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   command was written to the station. Ported from open-ocpp-tck's
   `drivers/codetics-ev-server-lite`, without its TCK fixtures.
 
+### Fixed
+
+- SteVe 3.15.0: charge-point administration finds a station whose id looks like markup
+  (`CP&01`, a quote) on the escaped list 3.15.0 renders, and no longer takes another station
+  for it on the raw list of 3.14.x (`X&amp;amp;` listed for `X&amp;`).
+
 ## [0.0.2] - 2026-10-19
 
 ### Added
