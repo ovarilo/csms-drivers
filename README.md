@@ -260,8 +260,10 @@ await driver.operations16.execute("CP-1", { action: "Reset", type: "Soft" });
   reports it as not dispatched, but EVtivity replays it the next time that
   station connects unless its `ocpp.offlineCommandTtlHours` setting is `0`.
 - The login is rate limited and every refused password counts toward the
-  account's sign-in backoff. The driver logs in once per process, server and
-  account, shared by every driver instance, and replaces the one-hour token
+  account's sign-in backoff. The driver logs in once per process, server,
+  account and password, shared by every driver instance with those
+  credentials (a driver with another password logs in itself), and replaces
+  the one-hour token
   before it expires. A login refused 401 or 403, or answered
   `mustResetPassword`, is remembered for fifteen minutes instead of retried. A
   command answered 401 logs in again and is sent once more, but only once the
