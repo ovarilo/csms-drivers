@@ -373,14 +373,15 @@ what the driver claims, plus whether the claim is true.
   undeclared one that works, fails). A declared action failing with
   `CsmsNotDispatchedError` or a plain `Error` does not disprove the
   declaration. `SAMPLE_OPERATIONS_16` and `SAMPLE_OPERATION_201` are the
-  default fixtures; pass `operations16` to override an action, and leave one
-  out to have its rule skipped. Point it at a fake transport: it runs the real
+  default fixtures; pass `operations16` to override an action (the others keep
+  their defaults), and map one to `undefined` to have its rule skipped. Point it at a fake transport: it runs the real
   `execute`.
 - `commandsConformance(driver, { cpId, scenarios })`: `commands` exists
   exactly when `capabilities.commands` is declared, and `poll` exactly when
   `polling` is; every verdict is returned as a value in the expected state;
   a timeout is `unknown`, never `failed`; an `accepted`-completion driver never
-  reports `confirmed`; `poll` answers a submitted ref and `null` for a
+  reports `confirmed`; `submit16` of an undeclared 1.6 action answers
+  `unsupported` (skipped when every action is declared); `poll` answers a submitted ref and `null` for a
   stranger. The suite cannot make a CSMS refuse or time out: each scenario
   (`accepted`, `confirmed`, `rejected`, `unknown`, `timeout`) is an operation
   and an optional `arrange` step where you steer your fake transport.

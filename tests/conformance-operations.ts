@@ -26,7 +26,9 @@
  *     in its place is red; a throwing `submit16` is red (UnsupportedOperationError
  *     included); a `confirmed` from an `accepted`-completion driver is red;
  *     `confirmed` is skipped for it; polling answers a submitted ref and
- *     `null` for a stranger, and is checked only when declared.
+ *     `null` for a stranger, and is checked only when declared. An undeclared
+ *     1.6 action must be answered `unsupported` as a value, and `at` must be
+ *     an ISO 8601 instant.
  *  5. THE SAMPLES COVER THE VOCABULARY. `SAMPLE_OPERATIONS_16` holds one
  *     operation per 1.6 action, each under its own name.
  */
@@ -284,10 +286,36 @@ for (const variant of ["v1", "v2"] as const) {
 
 // 3. Skipped is not passed ------------------------------------------------------
 
+/** Every 1.6 action mapped to no fixture. */
+const NO_FIXTURES = Object.fromEntries(CSMS_OPERATION_16_ACTIONS.map((a) => [a, undefined]));
+
 {
+  // A one-action override keeps the defaults of the other actions.
+  const overridden = await operationsConformance(fakeDriver(), {
+    cpId: CP,
+    operations16: { Reset: { action: "Reset", type: "Hard" } },
+  });
+  check(
+    CSMS_OPERATION_16_ACTIONS.every((a) => overridden.passed.includes(R16(a))),
+    "a one-action override still asks the other 1.6 actions with the default fixtures",
+  );
+  check(
+    !skippedRules(overridden).some((r) => r.startsWith("1.6 ")),
+    "a one-action override skips no 1.6 action",
+  );
+
+  const overridden201 = await operationsConformance(fakeDriver({ declared201: ["Reset"] }), {
+    cpId: CP,
+    operations201: { Reset: { action: "Reset", type: "Immediate" } },
+  });
+  check(
+    CSMS_OPERATION_201_ACTIONS.every((a) => overridden201.passed.includes(R201(a))),
+    "a one-action 2.0.1 override still asks the other 2.0.1 actions with the default fixtures",
+  );
+
   const report = await operationsConformance(fakeDriver(), {
     cpId: CP,
-    operations16: { Reset: SAMPLE_OPERATIONS_16.Reset },
+    operations16: { ...NO_FIXTURES, Reset: SAMPLE_OPERATIONS_16.Reset },
   });
   check(
     report.passed.filter((r) => r.startsWith("1.6 ")).join("|") === R16("Reset"),
@@ -296,11 +324,11 @@ for (const variant of ["v1", "v2"] as const) {
   check(
     skippedRules(report).includes(R16("ClearCache")) &&
       report.skipped.find((s) => s.rule === R16("ClearCache"))?.reason.includes("fixture") === true,
-    "an action without a fixture is skipped, with the reason",
+    "an action mapped to undefined is skipped, with the reason",
   );
   check(partitions(report, TOTAL), "partial fixtures still partition the rules");
 
-  const empty = await operationsConformance(fakeDriver(), { cpId: CP, operations16: {} });
+  const empty = await operationsConformance(fakeDriver(), { cpId: CP, operations16: NO_FIXTURES });
   check(!empty.passed.some((r) => r.startsWith("1.6 ")), "without any fixture no 1.6 rule passes");
   check(conformanceHolds(empty), "skipping does not fail a run (and does not pass it either)");
 
@@ -308,7 +336,7 @@ for (const variant of ["v1", "v2"] as const) {
     fakeDriver({ behave16: { Reset: "unsupported" } }),
     {
       cpId: CP,
-      operations16: {},
+      operations16: NO_FIXTURES,
     },
   );
   check(
@@ -329,7 +357,12 @@ interface FakeCommands {
   outcomes?: Partial<Record<string, CommandOutcome | "throw-unsupported" | "throw-error">>;
   poll?: (ref: string) => Promise<CommandOutcome | null>;
   implementPoll?: boolean;
+  /** What submit16 does with the action the driver does not declare. */
+  undeclared?: "unsupported" | "accepts" | "throws" | "declares-all";
 }
+
+const UNDECLARED_ACTION: CsmsOperation16Action = "ClearCache";
+const UNDECLARED_RULE = "submit16 of an undeclared 1.6 action answers unsupported";
 
 function commandsDriver(options: FakeCommands = {}): {
   driver: CsmsDriver;
@@ -349,7 +382,12 @@ function commandsDriver(options: FakeCommands = {}): {
     ...options.outcomes,
   };
   const commands: CsmsCommands = {
-    async submit16() {
+    async submit16(_cp, op) {
+      if (op.action === UNDECLARED_ACTION && options.undeclared !== "declares-all") {
+        if (options.undeclared === "accepts") return { state: "accepted", at: AT, ref: "ref-9" };
+        if (options.undeclared === "throws") throw new UnsupportedOperationError("op", "legacy");
+        return { state: "unsupported", reason: "not expressible" };
+      }
       const outcome = outcomes[mode]!;
       if (outcome === "throw-unsupported") throw new UnsupportedOperationError("op", "legacy");
       if (outcome === "throw-error") throw new Error("boom");
@@ -367,7 +405,11 @@ function commandsDriver(options: FakeCommands = {}): {
   return {
     driver: {
       capabilities: {
-        operations16: new Set(CSMS_OPERATION_16_ACTIONS),
+        operations16: new Set(
+          CSMS_OPERATION_16_ACTIONS.filter(
+            (a) => a !== UNDECLARED_ACTION || options.undeclared === "declares-all",
+          ),
+        ),
         ...(declared ? { commands: declared } : {}),
       },
       operations16: { execute: async () => "receipt" },
@@ -473,6 +515,56 @@ function commandsDriver(options: FakeCommands = {}): {
     failedRules(malformedReport).some((r) => r.includes("six documented states")),
     "an outcome without `at` is red",
   );
+
+  for (const at of ["1", "2030", "Tue, 12 Nov 2026 10:00:00 GMT", "2026-11-12", "not a date"]) {
+    const loose = commandsDriver({
+      outcomes: { accepted: { state: "accepted", at, ref: "ref-1" } },
+    });
+    const looseReport = await commandsConformance(loose.driver, loose.fixtures);
+    check(
+      failedRules(looseReport).some((r) => r.includes("six documented states")),
+      `an \`at\` of ${JSON.stringify(at)} is not an ISO 8601 instant and is red`,
+    );
+  }
+  for (const at of ["2026-11-12T10:00:00Z", "2026-11-12T10:00:00.123+01:00"]) {
+    const iso = commandsDriver({ outcomes: { accepted: { state: "accepted", at, ref: "ref-1" } } });
+    check(
+      conformanceHolds(await commandsConformance(iso.driver, iso.fixtures)),
+      `an \`at\` of ${at} is accepted`,
+    );
+  }
+}
+
+// submit16 and the declared 1.6 actions
+{
+  const good = await commandsConformance(
+    ...(Object.values(commandsDriver()) as [CsmsDriver, CommandsFixtures]),
+  );
+  check(good.passed.includes(UNDECLARED_RULE), "an undeclared action answered unsupported passes");
+
+  for (const undeclared of ["accepts", "throws"] as const) {
+    const flawed = commandsDriver({ undeclared });
+    const report = await commandsConformance(flawed.driver, flawed.fixtures);
+    check(
+      failedRules(report).includes(UNDECLARED_RULE),
+      `submit16 of an undeclared action (${undeclared}) is red`,
+    );
+  }
+
+  const all = commandsDriver({ undeclared: "declares-all" });
+  const allReport = await commandsConformance(all.driver, all.fixtures);
+  check(
+    allReport.skipped.some((s) => s.rule === UNDECLARED_RULE && s.reason.length > 0) &&
+      !allReport.passed.includes(UNDECLARED_RULE),
+    "a driver declaring every action skips the undeclared rule, with a reason",
+  );
+
+  const explicit = commandsDriver({ undeclared: "accepts" });
+  const explicitReport = await commandsConformance(explicit.driver, {
+    ...explicit.fixtures,
+    undeclared: { action: "ClearCache" },
+  });
+  check(failedRules(explicitReport).includes(UNDECLARED_RULE), "fixtures.undeclared is used");
 }
 
 {

@@ -12,6 +12,8 @@
  *    timeout, never `failed`), as a well-formed {@link CommandOutcome};
  *  - `submit16` never throws for a verdict, `UnsupportedOperationError`
  *    included;
+ *  - `submit16` of a 1.6 action missing from `capabilities.operations16`
+ *    answers `unsupported` as a value (skipped when every action is declared);
  *  - a driver declaring `completion: "accepted"` never reports `confirmed`;
  *  - with `polling`, `poll(ref)` of a submitted ref answers an outcome and
  *    `poll` of a ref nobody issued answers `null`.
@@ -24,12 +26,14 @@
  * follows the same contract and is not exercised yet.
  */
 import {
+  CSMS_OPERATION_16_ACTIONS,
   UnsupportedOperationError,
   type CommandOutcome,
   type CommandOutcomeState,
   type CsmsOperation16,
 } from "../contracts.ts";
 import type { CsmsDriver } from "../models.ts";
+import { SAMPLE_OPERATIONS_16 } from "./operations.ts";
 import { createRecorder, type ConformanceReport } from "./report.ts";
 
 /** One command to submit, and the setup that makes the CSMS answer as wanted. */
@@ -42,6 +46,9 @@ export interface CommandScenario {
 /** What {@link commandsConformance} submits. */
 export interface CommandsFixtures {
   readonly cpId: string;
+  /** A 1.6 operation the driver does not declare; default: the sample of the
+   *  first undeclared action. */
+  readonly undeclared?: CsmsOperation16;
   readonly scenarios: {
     /** The CSMS dispatched or queued it; the station's answer is not known. */
     readonly accepted?: CommandScenario;
@@ -68,6 +75,7 @@ const RULE = {
   timeout: "submit16 reports a timeout as unknown with cause timeout, never failed",
   neverThrows: "submit16 returns a verdict instead of throwing",
   wellFormed: "every outcome is one of the six documented states with its required fields",
+  undeclared: "submit16 of an undeclared 1.6 action answers unsupported",
   completionHolds: "a driver declaring completion accepted never reports confirmed",
   pollSubmitted: "poll of a submitted ref answers an outcome",
   pollUnknown: "poll of a ref nobody issued answers null",
@@ -93,6 +101,8 @@ const STATES: readonly string[] = [
 ];
 const CAUSES: readonly string[] = ["timeout", "connection-lost", "no-evidence"];
 
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+
 /** Why `value` is not a well-formed outcome, or `undefined` when it is. */
 function malformed(value: unknown): string | undefined {
   if (typeof value !== "object" || value === null) return "not an object";
@@ -105,7 +115,7 @@ function malformed(value: unknown): string | undefined {
     return typeof outcome["reason"] === "string" ? undefined : "unsupported lacks a reason";
   }
   const at = outcome["at"];
-  if (typeof at !== "string" || Number.isNaN(Date.parse(at))) {
+  if (typeof at !== "string" || !ISO_INSTANT.test(at) || Number.isNaN(Date.parse(at))) {
     return `${state} lacks an ISO 8601 \`at\``;
   }
   if (state === "unknown" && !CAUSES.includes(String(outcome["cause"]))) {
@@ -145,6 +155,29 @@ export async function commandsConformance(
       ? "polling is declared but poll is not implemented"
       : "poll is implemented but polling is not declared",
   );
+
+  const undeclaredOp: CsmsOperation16 | undefined =
+    fixtures.undeclared ??
+    CSMS_OPERATION_16_ACTIONS.filter((a) => !driver.capabilities.operations16.has(a)).map(
+      (a) => SAMPLE_OPERATIONS_16[a],
+    )[0];
+  if (undeclaredOp === undefined) {
+    recorder.skip(RULE.undeclared, "the driver declares every 1.6 action");
+  } else {
+    let problem: string | undefined;
+    try {
+      const outcome = await commands.submit16(fixtures.cpId, undeclaredOp);
+      const state = (outcome as { state?: unknown } | null)?.state;
+      if (state !== "unsupported") problem = `answered ${JSON.stringify(state)}`;
+    } catch (error) {
+      problem = `threw ${error instanceof Error ? error.name : String(error)}`;
+    }
+    recorder.expect(
+      problem === undefined,
+      RULE.undeclared,
+      `${undeclaredOp.action} is not declared in capabilities.operations16 and submit16 ${problem} instead of answering unsupported`,
+    );
+  }
 
   const refs: string[] = [];
   let submitted = 0;
