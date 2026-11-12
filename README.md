@@ -316,10 +316,10 @@ What a `2xx` or a `CALLRESULT` means depends on the driver, and
 
 For every driver, a request that never became an OCPP CALL, or that the CSMS
 cannot express, still throws as `execute` does; and a timeout after dispatch
-is `unknown`, never `failed`. The EVtivity driver module exports `CommandWaitInterruptedError` (a
-`CsmsNotDispatchedError`, so `execute` treats it as before): the error `execute`
-throws when a wait is interrupted after the CALL may have left, which
-`submit16` reports as `unknown`.
+is `unknown`, never `failed`. When an EVtivity wait is interrupted after the CALL may have left, `execute`
+still throws a `CsmsNotDispatchedError` (rely on `instanceof
+CsmsNotDispatchedError`; the internal subclass is not exported), which `submit16`
+reports as `unknown`.
 
 In a UI, show `accepted` as "sent", never "done", and `unknown` as "no answer
 yet", never as an error that implies nothing happened. Never retry on
