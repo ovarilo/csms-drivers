@@ -171,8 +171,9 @@ Three things follow from that UI. A refusal (a password outside SteVe's 16 to
 cannot clear a stored password, so a move to profile 0 or 3 replaces it with
 a random one nobody holds. And a security change on a station that is
 connected is pushed to it as `ChangeConfiguration`; if the station refuses,
-`update` throws although the record has changed. The CitrineOS, Codetics
-ev-server-lite and EVtivity drivers do not implement the surface yet.
+`update` throws although the record has changed. The Codetics ev-server-lite
+driver implements it too, with the limits listed in its section. The CitrineOS
+and EVtivity drivers do not implement the surface yet.
 
 ## Codetics ev-server-lite
 
@@ -199,6 +200,29 @@ const driver = createCodeticsEvServerLiteCsmsDriver({
 
 await driver.operations16.execute("CP-1", { action: "Reset", type: "Soft" });
 ```
+
+Charge-point administration (`driver.chargePoints`) goes through the server's
+`/api/v1/stations` routes, and what the server does shapes the declaration:
+
+- The password is always **generated** (`basicAuthPassword: "generated"`): `create`
+  and an `update` to profile 1 resolve with `{ generatedBasicAuthPassword }`, shown
+  once. A supplied password is refused.
+- The description is **required** (`description: "required"`): it is the station's
+  name, non-blank, and cannot be cleared.
+- Registration is **`Accepted` only** (`registrations`): the server always accepts a
+  boot, and its `enabled: false` is a SecurityError on every call, not OCPP's
+  `Rejected`, so the driver neither sets nor changes it.
+- Profile 1 is always offered; **0 and 3 depend on how the server is deployed**, so
+  they come from the driver options `allowUnauthenticated` (the server's
+  `OCPP_ALLOW_UNAUTHENTICATED`) and `clientCaConfigured`, and
+  `codeticsEvServerLiteCapabilities(options)` builds the declaration without a
+  client. Profile 2 is never offered. A station is created on profile 1 and moved to
+  0 or 3 afterwards; if that fails, the half-made station is deleted again.
+- `update` is read-modify-write: the server replaces the whole record on `PUT`, so
+  the driver reads it, changes one member and writes all of it back. It is not
+  atomic; a change made to the same station in between is lost.
+- `delete` of a missing station resolves; of a station with an active session the
+  server answers 409, which is a plain `Error`.
 
 - `execute()` resolves once the command has left `QUEUED` (`SENT`,
   `SUCCEEDED`, or `FAILED` with the station's CALLERROR), with the command row

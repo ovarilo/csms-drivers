@@ -18,10 +18,15 @@ import {
 } from "../contracts.ts";
 import type { CsmsConnectorApi, CsmsDriver, CsmsSessionApi } from "../models.ts";
 import { EvslApi } from "./api-client.ts";
+import {
+  createEvslChargePoints,
+  evslChargePointCapabilities,
+  type EvslChargePointOptions,
+} from "./charge-points.ts";
 import { DEFAULT_EVSL_DISPATCH_TIMEOUT_MS, type EvslConfig } from "./config.ts";
 import { dispatch, pollCommand, submitCommand, toCommand, type EvslRefs } from "./requests.ts";
 
-export interface CodeticsEvServerLiteCsmsDriverOptions {
+export interface CodeticsEvServerLiteCsmsDriverOptions extends EvslChargePointOptions {
   readonly config: EvslConfig;
   readonly refs?: EvslRefs;
   readonly fetch?: FetchLike;
@@ -41,6 +46,22 @@ export const CODETICS_EV_SERVER_LITE_CAPABILITIES: CsmsCapabilities = {
   commands: { completion: "confirmed", polling: true },
 };
 
+/**
+ * The declaration of a driver created with `options`: the operations of
+ * {@link CODETICS_EV_SERVER_LITE_CAPABILITIES} plus the charge-point
+ * administration the server offers. The profiles it can provision depend on how
+ * the server is deployed, which a declaration cannot ask it, so they come from
+ * the options -- readable without creating a client.
+ */
+export function codeticsEvServerLiteCapabilities(
+  options: EvslChargePointOptions = {},
+): CsmsCapabilities {
+  return {
+    ...CODETICS_EV_SERVER_LITE_CAPABILITIES,
+    chargePoints: evslChargePointCapabilities(options),
+  };
+}
+
 /** Creates the reusable Codetics ev-server-lite operation surface, without TCK
  *  lifecycle hooks. */
 export function createCodeticsEvServerLiteCsmsDriver(
@@ -50,7 +71,8 @@ export function createCodeticsEvServerLiteCsmsDriver(
   const refs = options.refs ?? {};
   const timeoutMs = options.config.dispatchTimeoutMs ?? DEFAULT_EVSL_DISPATCH_TIMEOUT_MS;
   return {
-    capabilities: CODETICS_EV_SERVER_LITE_CAPABILITIES,
+    capabilities: codeticsEvServerLiteCapabilities(options),
+    chargePoints: createEvslChargePoints(api, options),
     ...(options.sessions ? { sessions: options.sessions } : {}),
     ...(options.connectors ? { connectors: options.connectors } : {}),
     operations16: {
@@ -67,5 +89,6 @@ export function createCodeticsEvServerLiteCsmsDriver(
 }
 
 export * from "./api-client.ts";
+export * from "./charge-points.ts";
 export * from "./config.ts";
 export * from "./requests.ts";

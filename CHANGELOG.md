@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Charge-point administration for the Codetics ev-server-lite driver (`driver.chargePoints`):
+  `create`, `get`, `update` and `delete` over the server's `/api/v1/stations` routes. The server
+  generates the Basic Auth password (returned once as `generatedBasicAuthPassword`), requires
+  the description, and always accepts a boot, so the driver declares `"generated"`, `"required"`
+  and `registrations` of `Accepted` only. Profile 1 is always offered; profiles 0 and 3 come from
+  the new driver options `allowUnauthenticated` and `clientCaConfigured`, readable without a
+  client through `codeticsEvServerLiteCapabilities(options)`. Profile 2 is not offered. `update`
+  reads and rewrites the whole record, so it is not atomic; `delete` of a station in an active
+  session is a plain `Error`.
+
 - `capabilities.chargePoints.basicAuthPassword` (`"supplied"`, the default, or `"generated"`)
   and `capabilities.chargePoints.description` (`"optional"`, the default, or `"required"`):
   what a CSMS imposes on a station's Basic Auth password and description. A CSMS that
