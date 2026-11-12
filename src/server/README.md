@@ -116,7 +116,7 @@ mistyped member is refused, and so is any member the model does not have.
 | `GET /v1/charge-points/{id}` | `chargePoints.get` |
 | `PATCH /v1/charge-points/{id}` | `chargePoints.update` |
 | `DELETE /v1/charge-points/{id}` | `chargePoints.delete` |
-| `POST /v1/charge-points/{id}/operations/{operation}` | `operations16.execute`, or `commands.submit` when the driver has it |
+| `POST /v1/charge-points/{id}/operations/{operation}` | `operations16.execute`, or `commands.submit16` when the driver has it |
 | `GET /v1/commands/{ref}` | `commands.poll` |
 
 `{id}` is the station's OCPP identity, percent-encoded like any other path
@@ -278,7 +278,7 @@ HTTP/1.1 202 Accepted
 
 `status: "dispatched"` stays for clients that predate `outcome`, and is not a
 verdict: **read `outcome.state`**. A driver without `commands` answers exactly
-as before, with no `outcome`. The server then makes one `commands.submit` call
+as before, with no `outcome`. The server then makes one `commands.submit16` call
 instead of `operations16.execute`.
 
 | `outcome.state` | meaning | fields |
@@ -294,13 +294,13 @@ instead of `operations16.execute`.
 server's `secrets`, at any depth, like every other message it returns.
 
 One rule: a verdict (`unsupported`, `rejected`, `failed`, `unknown`) is
-returned by `submit` as a value, so it is a `202` with an `outcome`; it does not
-change the status line. `submit` throws only when no verdict can be given (an
+returned by `submit16` as a value, so it is a `202` with an `outcome`; it does not
+change the status line. `submit16` throws only when no verdict can be given (an
 environment or transport fault before any answer, a plain `Error`), and that
 is an error response with no `outcome` (`502`, `504`...). A driver that still
-throws `UnsupportedOperationError` or `CsmsNotDispatchedError` from `submit`
+throws `UnsupportedOperationError` or `CsmsNotDispatchedError` from `submit16`
 is a legacy path: the handler maps it as for `execute` (`501`, `502`), with no
-`outcome`. Those two classes are `execute` semantics, not the `submit` contract.
+`outcome`. Those two classes are `execute` semantics, not the `submit16` contract.
 
 ```http
 GET /v1/commands/cmd-1
@@ -318,7 +318,7 @@ answers `501 unsupported_capability`, and a `ref` the driver does not know is
 
 A `2xx` is a statement about the CSMS, never about the station, unless
 `outcome.state` is `confirmed`. `capabilities.commands.completion` is the
-furthest state `submit` reaches on its own:
+furthest state `submit16` reaches on its own:
 
 - `accepted`: the CSMS took the command. The station's `CALLRESULT` is never
   read back, so a station that ignores the CALL, or answers `Rejected`, still

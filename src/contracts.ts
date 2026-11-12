@@ -1364,12 +1364,26 @@ export interface CsmsCommands {
    * into `failed`. It throws only when no verdict can be given, an
    * environment or transport fault before any answer, as a plain `Error`.
    * {@link UnsupportedOperationError} and {@link CsmsNotDispatchedError} are
-   * `execute` semantics; a driver that still throws them from `submit` is on
-   * a legacy path, which the HTTP handler maps like `execute` (501 and 502).
+   * `execute` semantics; a driver that still throws them from `submit16` is
+   * on a legacy path, which the HTTP handler maps like `execute` (501 and
+   * 502).
+   *
+   * Mirrors `operations16`: an action valid in both versions
+   * (`ClearChargingProfile {}`, `TriggerMessage` `Heartbeat`) cannot say
+   * which one it is, so each version has its own method.
    */
-  submit(
+  submit16(
     cpId: string,
-    op: CsmsOperation16 | CsmsOperation201,
+    op: CsmsOperation16,
+    opts?: { readonly signal?: AbortSignal },
+  ): Promise<CommandOutcome>;
+  /**
+   * The OCPP 2.0.1 counterpart of {@link submit16}, with the same contract.
+   * Present only when the driver has `operations201`.
+   */
+  submit201?(
+    cpId: string,
+    op: CsmsOperation201,
     opts?: { readonly signal?: AbortSignal },
   ): Promise<CommandOutcome>;
   /**
@@ -1381,7 +1395,7 @@ export interface CsmsCommands {
 
 /** What {@link CsmsCommands} declares. */
 export interface CsmsCommandCapabilities {
-  /** The furthest state `submit` reaches on its own: `accepted` (the station's
+  /** The furthest state `submit16` reaches on its own: `accepted` (the station's
    *  answer is never read) or `confirmed` (it can be). */
   readonly completion: "accepted" | "confirmed";
   /** `CsmsCommands.poll` exists. */

@@ -17,7 +17,7 @@
  *   PATCH  /v1/charge-points/{id}                       chargePoints.update
  *   DELETE /v1/charge-points/{id}                       chargePoints.delete
  *   POST   /v1/charge-points/{id}/operations/{path}     operations16.execute, or
- *                                                       commands.submit when the driver has it
+ *                                                       commands.submit16 when the driver has it
  *   GET    /v1/commands/{ref}                           commands.poll
  *
  * NO AUTHENTICATION, SO NO BROWSER. The daemon listens on loopback, and a page
@@ -323,7 +323,7 @@ export function createCsmsHttpHandler(
       // The verdict is a value, so the status stays 202 and `status` stays
       // "dispatched" for clients that predate `outcome`; errors and the
       // deadline keep their statuses and carry no outcome.
-      const outcome = await call(() => commands.surface.submit(cpId, operation));
+      const outcome = await call(() => commands.surface.submit16(cpId, operation));
       return json(202, {
         ...accepted,
         status: "dispatched",

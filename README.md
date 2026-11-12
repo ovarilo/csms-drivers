@@ -290,7 +290,7 @@ in any language. See [`src/server/README.md`](src/server/README.md).
 ### Command outcomes
 
 `CsmsDriver.commands` is an optional surface beside `operations16` and
-`operations201`, whose `execute` is unchanged. `commands.submit(cpId, op)`
+`operations201`, whose `execute` is unchanged. `commands.submit16(cpId, op)` (and `submit201?` for 2.0.1)
 resolves to a `CommandOutcome` (`unsupported`, `rejected`, `accepted`,
 `confirmed`, `failed`, `unknown`) instead of throwing for a CSMS or station
 verdict, and `commands.poll(ref)` re-reads one when
