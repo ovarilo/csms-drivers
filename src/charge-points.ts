@@ -20,10 +20,31 @@ export type ChargePointSecurityProfile = 0 | 1 | 2 | 3;
  * How the station authenticates. Profiles 1 and 2 use HTTP Basic, so they
  * carry its password; 0 has none, and 3 authenticates by client certificate,
  * whose PKI is the CSMS's configuration rather than a station's record.
+ *
+ * A profile 1 or 2 WITHOUT `basicAuthPassword` asks the CSMS to generate the
+ * password (see `CsmsChargePointCapabilities.basicAuthPassword`): it comes
+ * back once, in {@link ChargePointProvisioned}. A driver declaring `"supplied"`
+ * refuses that arm with `UnsupportedOperationError`, and one declaring
+ * `"generated"` refuses a supplied password the same way.
  */
 export type ChargePointSecurity =
   | { readonly profile: 0 | 3 }
-  | { readonly profile: 1 | 2; readonly basicAuthPassword: string };
+  | { readonly profile: 1 | 2; readonly basicAuthPassword: string }
+  | { readonly profile: 1 | 2; readonly basicAuthPassword?: undefined };
+
+/** The Basic Auth password a security block supplies; `undefined` when it supplies none. */
+export function suppliedBasicAuthPassword(security: ChargePointSecurity): string | undefined {
+  return "basicAuthPassword" in security ? security.basicAuthPassword : undefined;
+}
+
+/**
+ * What `create` and `update` hand back, when the CSMS generated a credential:
+ * the Basic Auth password, returned ONCE, by the write that generated it. It is
+ * the only place a password-named member may appear -- `get` never returns it.
+ */
+export interface ChargePointProvisioned {
+  readonly generatedBasicAuthPassword?: string;
+}
 
 export interface ChargePointDefinition {
   /** The OCPP identity the station connects with. Stable: it is the key. */
@@ -48,7 +69,9 @@ export interface ChargePointDetails {
  * the whole block, because the password belongs to the profile -- so a
  * `security` of profile 0 or 3 discards any stored Basic Auth password: it no
  * longer authenticates the station, even if the station is later moved back
- * to a profile that checks one. A `description` of `null` clears it.
+ * to a profile that checks one. A `security` of profile 1 or 2 without a
+ * password, on a driver that generates them, rotates it. A `description` of
+ * `null` clears it, unless the driver declares `description: "required"`.
  */
 export interface ChargePointUpdate {
   readonly registration?: ChargePointRegistration;
@@ -70,8 +93,14 @@ export interface ChargePointUpdate {
  * A security profile outside `capabilities.chargePoints.securityProfiles` is
  * refused with `UnsupportedOperationError`, by `create` and by `update`.
  * Likewise a registration outside `capabilities.chargePoints.registrations`
- * (all three when it is absent), and `get` never returns one. A refused call
- * changes nothing.
+ * (all three when it is absent), and `get` never returns one. A password
+ * supplied where the driver generates them, or left out where it expects them,
+ * is refused the same way, as is a missing or blank description (and a
+ * `null` or blank one on `update`) where `description` is `"required"`. A
+ * refused call changes nothing.
+ *
+ * `create` and `update` resolve with a {@link ChargePointProvisioned} when
+ * the CSMS generated a password, which is the only time it is ever shown.
  *
  * Idempotent provisioning is `get`, then `create` or `update`.
  */
@@ -82,9 +111,9 @@ export interface ChargePointUpdate {
 // `Rejected` into an `Accepted`. `delete` of a missing id resolves because
 // "absent afterwards" is unambiguous; "present as defined" is not.
 export interface CsmsChargePointAdmin {
-  create(definition: ChargePointDefinition): Promise<void>;
+  create(definition: ChargePointDefinition): Promise<void | ChargePointProvisioned>;
   get(cpId: string): Promise<ChargePointDetails | null>;
-  update(cpId: string, patch: ChargePointUpdate): Promise<void>;
+  update(cpId: string, patch: ChargePointUpdate): Promise<void | ChargePointProvisioned>;
   delete(cpId: string): Promise<void>;
 }
 
@@ -99,6 +128,19 @@ export interface CsmsChargePointCapabilities {
    * `"Accepted"`, the default of an omitted registration.
    */
   readonly registrations?: ReadonlySet<ChargePointRegistration>;
+  /**
+   * Who chooses the Basic Auth password of profile 1 and 2. ABSENT means
+   * `"supplied"`: the caller sends it. `"generated"`: the CSMS makes it, the
+   * caller sends none, and `create` and `update` return it once as
+   * `generatedBasicAuthPassword` -- exactly when they set a profile 1 or 2.
+   */
+  readonly basicAuthPassword?: "supplied" | "generated";
+  /**
+   * ABSENT means `"optional"`: a station may have none, and `null` clears it.
+   * `"required"`: `create` needs a non-blank one and `update` neither clears
+   * nor blanks it.
+   */
+  readonly description?: "optional" | "required";
 }
 
 /** `create` was asked for an id the CSMS already has. Nothing was changed. */

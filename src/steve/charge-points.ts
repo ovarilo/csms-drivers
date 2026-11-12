@@ -48,6 +48,7 @@ import {
   ChargePointNotFoundError,
   type ChargePointDetails,
   type ChargePointSecurity,
+  suppliedBasicAuthPassword,
   type ChargePointSecurityProfile,
   type CsmsChargePointAdmin,
 } from "../charge-points.ts";
@@ -91,16 +92,27 @@ function steveSecurity(
 ): NonNullable<ChargePointFormChange["security"]> {
   return {
     profile: security.profile,
-    authPassword: "basicAuthPassword" in security ? security.basicAuthPassword : withoutPassword(),
+    authPassword: suppliedBasicAuthPassword(security) ?? withoutPassword(),
   };
 }
 
 export function steveChargePoints(ui: SteveUiOps): CsmsChargePointAdmin {
-  const refuseUndeclared = (method: string, profile: ChargePointSecurityProfile): void => {
-    if (!STEVE_CHARGE_POINT_PROFILES.has(profile)) {
+  const refuseUndeclared = (method: string, security: ChargePointSecurity): void => {
+    if (!STEVE_CHARGE_POINT_PROFILES.has(security.profile)) {
       throw new UnsupportedOperationError(
         `chargePoints.${method}`,
-        `security profile ${profile} is not supported`,
+        `security profile ${security.profile} is not supported`,
+      );
+    }
+    // SteVe declares "supplied": it cannot generate a password, and a profile
+    // that checks one without a password would leave the station unreachable.
+    if (
+      (security.profile === 1 || security.profile === 2) &&
+      suppliedBasicAuthPassword(security) === undefined
+    ) {
+      throw new UnsupportedOperationError(
+        `chargePoints.${method}`,
+        `security profile ${security.profile} needs a basicAuthPassword: SteVe does not generate one`,
       );
     }
   };
@@ -163,7 +175,7 @@ export function steveChargePoints(ui: SteveUiOps): CsmsChargePointAdmin {
     async create(definition) {
       // `security` omitted is profile 0, which needs no password and stores none.
       const security = definition.security ?? { profile: 0 };
-      refuseUndeclared("create", security.profile);
+      refuseUndeclared("create", security);
       if ((await pkOf(definition.id)) !== undefined)
         throw new ChargePointAlreadyExistsError(definition.id);
       const change: ChargePointFormChange = {
@@ -193,7 +205,7 @@ export function steveChargePoints(ui: SteveUiOps): CsmsChargePointAdmin {
     },
 
     async update(cpId, patch) {
-      if (patch.security) refuseUndeclared("update", patch.security.profile);
+      if (patch.security) refuseUndeclared("update", patch.security);
       const chargeBoxPk = await pkOf(cpId);
       if (chargeBoxPk === undefined) throw new ChargePointNotFoundError(cpId);
       const change: ChargePointFormChange = {

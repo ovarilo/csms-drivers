@@ -8,6 +8,7 @@
 import type {
   ChargePointDefinition,
   ChargePointDetails,
+  ChargePointProvisioned,
   ChargePointRegistration,
   ChargePointSecurity,
   ChargePointSecurityProfile,
@@ -30,6 +31,9 @@ const PROFILES: readonly ChargePointSecurityProfile[] = Object.keys({
 function security(r: ObjectReader): ChargePointSecurity {
   const profile = r.oneOf("profile", PROFILES);
   if (profile === 1 || profile === 2) {
+    // Absent is the generated mode; whether the driver takes it is the
+    // handler's call, against the declaration.
+    if (!r.has("basicAuthPassword")) return { profile };
     const basicAuthPassword = r.string("basicAuthPassword");
     if (basicAuthPassword === "")
       throw new InvalidInputError("security.basicAuthPassword must not be empty");
@@ -64,6 +68,14 @@ export function decodeChargePointUpdate(body: unknown): ChargePointUpdate {
   });
   r.done();
   return update;
+}
+
+/** The answer of a write that generated a credential; `undefined` when it generated none. */
+export function encodeChargePointProvisioned(
+  provisioned: void | ChargePointProvisioned,
+): { generatedBasicAuthPassword: string } | undefined {
+  const password = provisioned?.generatedBasicAuthPassword;
+  return password === undefined ? undefined : { generatedBasicAuthPassword: password };
 }
 
 /** The read-back, rebuilt member by member so that nothing a driver adds -- a
