@@ -10,3 +10,5 @@
  */
 export * from "./report.ts";
 export * from "./charge-points.ts";
+export * from "./operations.ts";
+export * from "./commands.ts";
