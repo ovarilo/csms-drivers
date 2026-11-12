@@ -207,19 +207,14 @@ export class EvtivityApi {
       // (`abort("x")`, `abort(new Error())`): for a command the caller's
       // signal is the evidence, the error's name only for the rest.
       const byCaller = callerSignal?.aborted === true;
+      const unknown = `whether the server acted on it is unknown (${reason(err)})`;
       const why = byCaller
-        ? `aborted by the caller after the request may have left, and whether the ` +
-          `server acted on it is unknown (${reason(err)})`
+        ? `aborted by the caller after the request may have left, and ${unknown}`
         : isAbort(err)
-          ? `timed out after ${timeoutMs} ms: the request left, and whether the ` +
-            `server acted on it is unknown (${reason(err)})`
+          ? `timed out after ${timeoutMs} ms: the request left, and ${unknown}`
           : reason(err);
       if (command !== undefined && (byCaller || isAbort(err))) {
-        throw new CommandWaitInterruptedError(
-          `evtivity: POST ${url}`,
-          why,
-          callerSignal?.aborted !== true,
-        );
+        throw new CommandWaitInterruptedError(`evtivity: POST ${url}`, why, !byCaller);
       }
       throw new CsmsNotDispatchedError(`evtivity: POST ${url}`, why);
     }

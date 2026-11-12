@@ -302,15 +302,14 @@ export class EvslApi {
    * non-2xx is a plain `Error`. A request that never reached the server, or a
    * failed login, is still a `CsmsNotDispatchedError`.
    *
-   * `secretBearing` marks a call whose 2xx body carries a generated secret: a
+   * `secret` marks a call whose 2xx body carries a generated secret: a
    * body that will not parse is then reported without being quoted.
    */
   async call(
     method: EvslHttpMethod,
     path: string,
     body?: unknown,
-    accepted: readonly number[] = [],
-    secretBearing = false,
+    { accepted = [], secret = false }: { accepted?: readonly number[]; secret?: boolean } = {},
   ): Promise<{ readonly status: number; readonly body: unknown }> {
     const res = await this.exchange(method, path, body);
     const what = `codetics-ev-server-lite: ${method} ${path}`;
@@ -321,7 +320,7 @@ export class EvslApi {
       }
       throw new Error(`${what} returned ${res.status}: ${await errorBody(res)}`);
     }
-    return { status: res.status, body: await this.answeredBody(res, what, secretBearing) };
+    return { status: res.status, body: await this.answeredBody(res, what, secret) };
   }
 
   private async answeredBody(res: Response, what: string, quiet = false): Promise<unknown> {

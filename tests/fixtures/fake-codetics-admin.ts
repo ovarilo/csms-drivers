@@ -74,8 +74,8 @@ export function fakeCodeticsAdmin(): FakeCodeticsAdmin {
   const fetchImpl: FetchLike = async (input, init) => {
     const method = init?.method ?? "GET";
     const path = new URL(input).pathname;
-    const raw: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
-    all.push({ method, path, body: raw });
+    const body: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+    all.push({ method, path, body });
     if (method === "GET" && path === "/api/v1/auth/csrf") {
       return json({ token: "csrf-1", headerName: "X-XSRF-TOKEN" }, 200, {
         "set-cookie": "XSRF-TOKEN=csrf-1; Path=/",
@@ -83,7 +83,6 @@ export function fakeCodeticsAdmin(): FakeCodeticsAdmin {
     }
     if (method === "POST" && path === "/api/v1/auth/app/signin") return json({ token: "bearer-1" });
 
-    const body: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
     sent.push({ method, path, body });
     const fields = (body ?? {}) as Record<string, unknown>;
 

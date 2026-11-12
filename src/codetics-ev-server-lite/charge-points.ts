@@ -140,7 +140,9 @@ export function createEvslChargePoints(
   }
 
   async function readRecord(cpId: string): Promise<Record<string, unknown> | null> {
-    const { status, body } = await api.call("GET", stationPath(cpId), undefined, [404]);
+    const { status, body } = await api.call("GET", stationPath(cpId), undefined, {
+      accepted: [404],
+    });
     if (status === 404) return null;
     if (!isRecord(body)) {
       throw new Error(`codetics-ev-server-lite: GET ${stationPath(cpId)} answered no station`);
@@ -157,7 +159,10 @@ export function createEvslChargePoints(
 
   async function rotateSecret(cpId: string): Promise<string> {
     const path = stationPath(cpId, "/secret");
-    return requireSecret((await api.call("POST", path, undefined, [], true)).body, `POST ${path}`);
+    return requireSecret(
+      (await api.call("POST", path, undefined, { secret: true })).body,
+      `POST ${path}`,
+    );
   }
 
   return {
@@ -171,8 +176,7 @@ export function createEvslChargePoints(
         "POST",
         STATIONS,
         { id: definition.id, name },
-        [409],
-        true,
+        { accepted: [409], secret: true },
       );
       if (status === 409) throw new ChargePointAlreadyExistsError(definition.id);
       // From here the station exists: any failure deletes it again.
@@ -184,7 +188,7 @@ export function createEvslChargePoints(
         return undefined;
       } catch (error) {
         try {
-          await api.call("DELETE", stationPath(definition.id), undefined, [404]);
+          await api.call("DELETE", stationPath(definition.id), undefined, { accepted: [404] });
         } catch (rollback) {
           // Keep the original error's class; the reason is the DELETE's own
           // message, which carries no secret.
@@ -246,7 +250,7 @@ export function createEvslChargePoints(
     },
 
     async delete(cpId: string): Promise<void> {
-      await api.call("DELETE", stationPath(cpId), undefined, [404]);
+      await api.call("DELETE", stationPath(cpId), undefined, { accepted: [404] });
     },
   };
 }
