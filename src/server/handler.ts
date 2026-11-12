@@ -30,7 +30,11 @@
  * `application/json`, which no simple request can be. DELETE needs no such
  * rule: a browser preflights it, and the daemon answers no preflight.
  */
-import { ChargePointNotFoundError, type ChargePointSecurity } from "../charge-points.ts";
+import {
+  ChargePointNotFoundError,
+  type ChargePointRegistration,
+  type ChargePointSecurity,
+} from "../charge-points.ts";
 import { CSMS_OPERATION_16_ACTIONS } from "../contracts.ts";
 import type { CsmsDriver } from "../models.ts";
 import {
@@ -137,6 +141,33 @@ function checkProfile(profile: number | undefined, declared: ReadonlySet<number>
   }
 }
 
+/** What an absent `registrations` declaration means. */
+const ALL_REGISTRATIONS: ReadonlySet<ChargePointRegistration> = new Set([
+  "Accepted",
+  "Pending",
+  "Rejected",
+]);
+
+/** Likewise for a registration status: refused here, before the driver is asked. */
+function checkRegistration(
+  registration: ChargePointRegistration | undefined,
+  declared: ReadonlySet<ChargePointRegistration>,
+): void {
+  if (registration !== undefined && !declared.has(registration)) {
+    throw new CsmsHttpError(
+      501,
+      "unsupported_capability",
+      `registration ${registration} is not one this driver accepts (${sortedRegistrations(declared).join(", ")})`,
+    );
+  }
+}
+
+function sortedRegistrations(
+  declared: ReadonlySet<ChargePointRegistration>,
+): ChargePointRegistration[] {
+  return [...declared].sort();
+}
+
 function rememberPassword(security: ChargePointSecurity | undefined, secrets: string[]): void {
   if (security && "basicAuthPassword" in security) secrets.push(security.basicAuthPassword);
 }
@@ -160,7 +191,12 @@ export function createCsmsHttpHandler(
   // use, and reporting it would only move the 501 to the next request.
   const admin =
     driver.chargePoints && capabilities.chargePoints
-      ? { chargePoints: driver.chargePoints, declared: capabilities.chargePoints.securityProfiles }
+      ? {
+          chargePoints: driver.chargePoints,
+          declared: capabilities.chargePoints.securityProfiles,
+          // Absent means all three.
+          registrations: capabilities.chargePoints.registrations ?? ALL_REGISTRATIONS,
+        }
       : undefined;
   // Both halves again. Polling is the declaration AND the method: either alone
   // is a poll nobody can make.
@@ -181,7 +217,12 @@ export function createCsmsHttpHandler(
     operations16: CSMS_OPERATION_16_ACTIONS.filter((action) =>
       capabilities.operations16.has(action),
     ).map((action) => ({ operation: OPERATION_16_PATHS[action], action })),
-    chargePoints: admin ? { securityProfiles: [...admin.declared].sort((a, b) => a - b) } : null,
+    chargePoints: admin
+      ? {
+          securityProfiles: [...admin.declared].sort((a, b) => a - b),
+          registrations: sortedRegistrations(admin.registrations),
+        }
+      : null,
     commands: commands
       ? { completion: commands.completion, polling: commands.poll !== undefined }
       : null,
@@ -274,11 +315,13 @@ export function createCsmsHttpHandler(
 
     if (cpId === undefined) {
       if (method !== "POST") methodNotAllowed("POST");
-      const { chargePoints, declared } = requireAdmin();
+      const { chargePoints, declared, registrations } = requireAdmin();
       const definition = decodeChargePointDefinition(await readBody(request));
       rememberPassword(definition.security, secrets);
       // An omitted security is profile 0, and profile 0 is a profile too.
       checkProfile(definition.security?.profile ?? 0, declared);
+      // An omitted registration is Accepted, which every declaration contains.
+      checkRegistration(definition.registration, registrations);
       await call(() => chargePoints.create(definition));
       const location = `/v1/charge-points/${encodeURIComponent(definition.id)}`;
       return json(201, { id: definition.id }, { location });
@@ -289,7 +332,7 @@ export function createCsmsHttpHandler(
       // 405 before 501: a method this route never serves is wrong whatever the driver.
       if (method !== "GET" && method !== "PATCH" && method !== "DELETE")
         methodNotAllowed("GET, PATCH, DELETE");
-      const { chargePoints, declared } = requireAdmin();
+      const { chargePoints, declared, registrations } = requireAdmin();
       if (method === "GET") {
         const details = await call(() => chargePoints.get(cpId));
         if (!details) throw new ChargePointNotFoundError(cpId);
@@ -299,6 +342,7 @@ export function createCsmsHttpHandler(
         const update = decodeChargePointUpdate(await readBody(request));
         rememberPassword(update.security, secrets);
         checkProfile(update.security?.profile, declared);
+        checkRegistration(update.registration, registrations);
         await call(() => chargePoints.update(cpId, update));
         return new Response(null, { status: 204 });
       }

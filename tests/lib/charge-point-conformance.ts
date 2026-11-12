@@ -20,6 +20,7 @@ import {
   UnsupportedOperationError,
   type ChargePointDefinition,
   type ChargePointDetails,
+  type ChargePointRegistration,
   type ChargePointSecurity,
   type ChargePointSecurityProfile,
   type CsmsChargePointAdmin,
@@ -33,9 +34,12 @@ export const CONFORMANCE_IDS = [
   "CONFORMANCE-3",
   "CONFORMANCE-4",
   "CONFORMANCE-5",
+  "CONFORMANCE-6",
+  "CONFORMANCE-7",
   "CONFORMANCE-MISSING",
 ] as const;
-const [STATION_1, STATION_2, STATION_3, STATION_4, STATION_5, MISSING] = CONFORMANCE_IDS;
+const [STATION_1, STATION_2, STATION_3, STATION_4, STATION_5, STATION_6, STATION_7, MISSING] =
+  CONFORMANCE_IDS;
 
 /** Deletes what a crashed run may have left behind; a live caller runs it first. */
 export async function clearConformanceStations(admin: CsmsChargePointAdmin): Promise<void> {
@@ -48,6 +52,8 @@ export const RULE = {
   declaredWhenImplemented:
     "capabilities.chargePoints is declared exactly when chargePoints is implemented",
   declaresAProfile: "a declared admin surface names at least one security profile",
+  registrationsDeclared:
+    "declared registrations are non-empty, contain Accepted and cover every status get returns",
   getMissingIsNull: "get of a missing id is null",
   createStores: "create stores the registration, security profile and description it is given",
   readBackKeepsId: "get returns the id the station was created with",
@@ -76,8 +82,19 @@ export const RULE = {
   updateRefusesUndeclared:
     "update to an undeclared security profile throws UnsupportedOperationError",
   refusedUpdateChangesNothing: "a refused update changes nothing",
+  undeclaredRegistrationRefused:
+    "create and update with an undeclared registration throw UnsupportedOperationError",
+  refusedRegistrationChangesNothing:
+    "a create or update refused for its registration changes nothing",
 } as const;
 export type Rule = (typeof RULE)[keyof typeof RULE];
+
+/** What an absent `registrations` declaration means. */
+export const ALL_REGISTRATIONS: readonly ChargePointRegistration[] = [
+  "Accepted",
+  "Pending",
+  "Rejected",
+];
 
 export const ALL_PROFILES: readonly ChargePointSecurityProfile[] = [0, 1, 2, 3];
 
@@ -129,11 +146,14 @@ export async function chargePointAdminViolations(driver: CsmsDriver): Promise<st
   expect((declared === undefined) === (admin === undefined), RULE.declaredWhenImplemented);
   if (declared === undefined || admin === undefined) return violations;
   expect(declared.securityProfiles.size > 0, RULE.declaresAProfile);
+  // Absent means all three; present, it is never empty and holds the default.
+  const registrations = declared.registrations ?? new Set(ALL_REGISTRATIONS);
+  expect(registrations.size > 0 && registrations.has("Accepted"), RULE.registrationsDeclared);
 
   // A driver that throws where the contract says it resolves is a violation
   // to report, not a crash of the guard.
   try {
-    await exerciseLifecycle(admin, declared.securityProfiles, expect);
+    await exerciseLifecycle(admin, declared.securityProfiles, registrations, expect);
   } catch (error) {
     violations.push(`the lifecycle threw unexpectedly: ${String(error)}`);
   }
@@ -143,12 +163,15 @@ export async function chargePointAdminViolations(driver: CsmsDriver): Promise<st
 async function exerciseLifecycle(
   admin: CsmsChargePointAdmin,
   profiles: ReadonlySet<ChargePointSecurityProfile>,
+  registrations: ReadonlySet<ChargePointRegistration>,
   expect: (condition: boolean, rule: Rule) => void,
 ): Promise<void> {
   // Every read is also a check that no password escapes it.
   const read = async (cpId: string): Promise<ChargePointDetails | null> => {
     const details = await admin.get(cpId);
     expect(!exposesPassword(details), RULE.passwordWriteOnly);
+    // `get` never returns a status the driver does not declare.
+    expect(details === null || registrations.has(details.registration), RULE.registrationsDeclared);
     return details;
   };
   // A station that must exist at this point; its absence is a violation
@@ -166,11 +189,22 @@ async function exerciseLifecycle(
   const profile = declared.find((candidate) => candidate !== 0) ?? declared[0];
   if (profile === undefined) return;
   const otherProfile = declared.find((candidate) => candidate !== profile);
+  // The same for the registration: away from the default where one is
+  // declared, and a second one to move to. A CSMS declaring only Accepted has
+  // no other state, so the registration rules are exercised as far as they go
+  // (a create and an update naming Accepted) and the moves between states are
+  // skipped here, not failed.
+  const registration =
+    (["Rejected", "Pending"] as const).find((candidate) => registrations.has(candidate)) ??
+    "Accepted";
+  const otherRegistration = (["Pending", "Accepted", "Rejected"] as const).find(
+    (candidate) => candidate !== registration && registrations.has(candidate),
+  );
 
   // Part 2.
   const station: ChargePointDefinition = {
     id: STATION_1,
-    registration: "Rejected",
+    registration,
     security: securityFor(profile),
     description: "first",
   };
@@ -178,7 +212,7 @@ async function exerciseLifecycle(
   await admin.create(station);
   const created = await mustRead(station.id);
   expect(
-    created.registration === "Rejected" &&
+    created.registration === registration &&
       created.security.profile === profile &&
       created.description === "first",
     RULE.createStores,
@@ -202,10 +236,11 @@ async function exerciseLifecycle(
   // Part 3: an update applies what it names and nothing else, each step
   // compared with the whole record before it.
   let before = await mustRead(station.id);
-  await admin.update(station.id, { registration: "Pending" });
+  const movedTo = otherRegistration ?? registration;
+  await admin.update(station.id, { registration: movedTo });
   let after = await mustRead(station.id);
-  expect(after.registration === "Pending", RULE.updateAppliesRegistration);
-  expect(same(after, { ...before, registration: "Pending" }), RULE.updateKeepsUnnamed);
+  expect(after.registration === movedTo, RULE.updateAppliesRegistration);
+  expect(same(after, { ...before, registration: movedTo }), RULE.updateKeepsUnnamed);
 
   before = after;
   await admin.update(station.id, { description: "second" });
@@ -297,7 +332,7 @@ async function exerciseLifecycle(
 
     await admin.create({
       id: STATION_5,
-      registration: "Rejected",
+      registration,
       security: securityFor(profile),
       description: "kept",
     });
@@ -306,7 +341,7 @@ async function exerciseLifecycle(
       await rejectsWith(
         () =>
           admin.update(STATION_5, {
-            registration: "Accepted",
+            registration: otherRegistration ?? registration,
             description: "changed",
             security: securityFor(undeclared),
           }),
@@ -316,5 +351,50 @@ async function exerciseLifecycle(
     );
     expect(same(await read(STATION_5), before), RULE.refusedUpdateChangesNothing);
     await admin.delete(STATION_5);
+  }
+
+  // Part 5: an undeclared registration is refused like an undeclared profile,
+  // and the refusal changes nothing -- including the members the refused patch
+  // named beside it. Skipped, not failed, when all three are declared.
+  const undeclaredRegistration = ALL_REGISTRATIONS.find(
+    (candidate) => !registrations.has(candidate),
+  );
+  if (undeclaredRegistration !== undefined) {
+    expect(
+      await rejectsWith(
+        () =>
+          admin.create({
+            id: STATION_6,
+            registration: undeclaredRegistration,
+            security: securityFor(profile),
+          }),
+        UnsupportedOperationError,
+      ),
+      RULE.undeclaredRegistrationRefused,
+    );
+    expect((await read(STATION_6)) === null, RULE.refusedRegistrationChangesNothing);
+    await admin.delete(STATION_6);
+
+    await admin.create({
+      id: STATION_7,
+      registration,
+      security: securityFor(profile),
+      description: "kept",
+    });
+    before = await mustRead(STATION_7);
+    expect(
+      await rejectsWith(
+        () =>
+          admin.update(STATION_7, {
+            registration: undeclaredRegistration,
+            description: "changed",
+            security: securityFor(otherProfile ?? profile),
+          }),
+        UnsupportedOperationError,
+      ),
+      RULE.undeclaredRegistrationRefused,
+    );
+    expect(same(await read(STATION_7), before), RULE.refusedRegistrationChangesNothing);
+    await admin.delete(STATION_7);
   }
 }

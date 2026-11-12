@@ -31,7 +31,11 @@ export interface SteveCsmsDriverOptions {
 
 export const STEVE_CAPABILITIES: CsmsCapabilities = {
   operations16: new Set(CSMS_OPERATION_16_ACTIONS),
-  chargePoints: { securityProfiles: STEVE_CHARGE_POINT_PROFILES },
+  chargePoints: {
+    securityProfiles: STEVE_CHARGE_POINT_PROFILES,
+    // SteVe's form offers all three; declared rather than left to the default.
+    registrations: new Set(["Accepted", "Pending", "Rejected"]),
+  },
 };
 
 /**

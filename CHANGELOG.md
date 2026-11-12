@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`status: "dispatched"` stays, errors and `504` are unchanged), `GET /v1/commands/{ref}` serves
   polling, and `GET /v1/driver` reports `commands`. See "Command outcomes" in
   `src/server/README.md`.
+- `capabilities.chargePoints.registrations`: the registration statuses (`Accepted`, `Pending`,
+  `Rejected`) a driver's `create` and `update` accept. Absent means all three, so existing
+  drivers are unchanged; present, it is never empty and contains `Accepted`. An undeclared
+  status is refused with `UnsupportedOperationError` and changes nothing, `get` never returns
+  one, and the HTTP description lists them as `chargePoints.registrations` (an undeclared one on
+  `POST`/`PATCH` answers `501 unsupported_capability`). SteVe declares all three.
 - Drive a Codetics ev-server-lite CSMS with `createCodeticsEvServerLiteCsmsDriver`: every OCPP
   1.6 operation goes through its REST command endpoint, and `execute()` resolves once the
   command was written to the station. Ported from open-ocpp-tck's
@@ -34,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `citrineOsCapabilities` already was.
 
 ### Fixed
+
+- The charge-point conformance suite no longer fails a CSMS that has no `Pending` or `Rejected`
+  registration: it asks for the statuses the driver declares, skips the moves that need a
+  status it lacks, and checks that an undeclared one is refused.
 
 - SteVe 3.15.0: charge-point administration finds a station whose id looks like markup
   (`CP&01`, a quote) on the escaped list 3.15.0 renders, and no longer takes another station
