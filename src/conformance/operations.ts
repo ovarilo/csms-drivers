@@ -77,12 +77,14 @@ export const SAMPLE_OPERATIONS_16: {
 export interface OperationsFixtures {
   /** The charge point the operations are addressed to. */
   readonly cpId: string;
-  /** Per-action 1.6 operations; default {@link SAMPLE_OPERATIONS_16}. An action
-   *  mapped to `undefined` has no fixture and its rule is skipped. */
+  /** Per-action 1.6 operations, merged over {@link SAMPLE_OPERATIONS_16}: an
+   *  action left out keeps its default; one mapped to `undefined` has no
+   *  fixture and its rule is skipped. */
   readonly operations16?: {
     readonly [A in CsmsOperation16Action]?: Extract<CsmsOperation16, { action: A }>;
   };
-  /** Per-action 2.0.1 operations; default `SAMPLE_OPERATION_201`. */
+  /** Per-action 2.0.1 operations, merged over `SAMPLE_OPERATION_201` like
+   *  `operations16`. */
   readonly operations201?: {
     readonly [A in CsmsOperation201Action]?: Extract<CsmsOperation201, { action: A }>;
   };
@@ -145,8 +147,10 @@ export async function operationsConformance(
   const recorder = createRecorder(rules);
   const { cpId } = fixtures;
 
-  const samples16: Partial<Record<CsmsOperation16Action, CsmsOperation16>> =
-    fixtures.operations16 ?? SAMPLE_OPERATIONS_16;
+  const samples16: Partial<Record<CsmsOperation16Action, CsmsOperation16>> = {
+    ...SAMPLE_OPERATIONS_16,
+    ...fixtures.operations16,
+  };
   for (const action of CSMS_OPERATION_16_ACTIONS) {
     const op = samples16[action];
     if (op === undefined) {
@@ -170,8 +174,10 @@ export async function operationsConformance(
       : "capabilities.operations201 is declared but operations201 is not implemented",
   );
 
-  const samples201: Partial<Record<CsmsOperation201Action, CsmsOperation201>> =
-    fixtures.operations201 ?? SAMPLE_OPERATION_201;
+  const samples201: Partial<Record<CsmsOperation201Action, CsmsOperation201>> = {
+    ...SAMPLE_OPERATION_201,
+    ...fixtures.operations201,
+  };
   const operations201 = driver.operations201;
   if (operations201 === undefined && declared201 === undefined) {
     recorder.skip(CSMS_OPERATION_201_ACTIONS.map(rule201), "the driver does not speak OCPP 2.0.1");

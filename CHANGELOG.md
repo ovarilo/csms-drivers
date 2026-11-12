@@ -28,8 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `operationsConformance` (every declared 1.6 and 2.0.1 action must not be refused as
   unsupported, every undeclared one must be; `SAMPLE_OPERATIONS_16` as default fixtures) and
   `commandsConformance` (the `commands` surface: outcomes as values, a timeout as `unknown`,
-  polling). Each returns a `ConformanceReport` with `passed`, `failed` and `skipped` rules; a
-  rule the driver's declaration makes not applicable is skipped with a reason, never passed.
+  an undeclared 1.6 action answered `unsupported`, an ISO 8601 `at`, polling). Each returns a `ConformanceReport` with `passed`, `failed` and
+  `skipped` rules; a rule the driver's declaration makes not applicable is skipped with a reason, never passed.
   Pagination, observations and timestamps are documented as not applicable until their surfaces
   land.
 - Drive a Codetics ev-server-lite CSMS with `createCodeticsEvServerLiteCsmsDriver`: every OCPP
