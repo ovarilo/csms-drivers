@@ -17,6 +17,10 @@
 #
 # src/shared/ holds internal helpers several drivers import, so it follows the
 # same allowlist: a helper that imported a driver would tie every driver to it.
+#
+# src/conformance/ is the published conformance suites: pure functions over the
+# core types, so it follows the allowlist too -- a suite that imported a driver
+# would only ever be able to test that one.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -55,6 +59,14 @@ shared_imports="$(grep -R -n -E "${specifier}\.\.?/" src/shared --include='*.ts'
 if [ -n "$shared_imports" ]; then
   echo "FAIL: a shared helper imports beyond the generic contract:" >&2
   printf '%s\n' "$shared_imports" >&2
+  exit 1
+fi
+
+conformance_imports="$(grep -R -n -E "${specifier}\.\.?/" src/conformance --include='*.ts' \
+  | grep -v -E "[\"'](\./[^/\"']+|\.\./(contracts|models|charge-points)\.ts)[\"']" || true)"
+if [ -n "$conformance_imports" ]; then
+  echo "FAIL: a conformance suite imports beyond the generic contract:" >&2
+  printf '%s\n' "$conformance_imports" >&2
   exit 1
 fi
 

@@ -102,6 +102,8 @@ import {
 } from "./fixtures/fake-steve-manager";
 import {
   ALL_PROFILES,
+  ALL_REGISTRATIONS,
+  chargePointAdminConformance,
   chargePointAdminViolations,
   rejectsWith,
   RULE,
@@ -128,8 +130,6 @@ import {
 /** The declaration the flawed copies run under unless they say otherwise:
  *  the default profile, and one that carries a password. */
 const DECLARED_PROFILES: readonly ChargePointSecurityProfile[] = [0, 1];
-
-const ALL_REGISTRATIONS: readonly ChargePointRegistration[] = ["Accepted", "Pending", "Rejected"];
 
 const failures: string[] = [];
 
@@ -646,6 +646,88 @@ for (const registrations of REGISTRATION_DECLARATIONS) {
   check(
     violations.length === 0,
     `the reference driver conforms declaring registrations ${registrations?.join(",") ?? "none"} (violations: ${violations.join("; ")})`,
+  );
+}
+// Part 8, the report: a rule that depends on something the driver does not
+// declare is SKIPPED with a reason -- neither passed nor failed -- and every
+// rule lands in exactly one of the three lists.
+{
+  const allRules = Object.values(RULE);
+  const states = (report: Awaited<ReturnType<typeof chargePointAdminConformance>>) => [
+    ...report.passed,
+    ...report.failed.map((failure) => failure.rule),
+    ...report.skipped.map((skip) => skip.rule),
+  ];
+  const skippedRules = (report: Awaited<ReturnType<typeof chargePointAdminConformance>>) =>
+    report.skipped.map((skip) => skip.rule as string);
+
+  const acceptedOnly = await chargePointAdminConformance(
+    memoryDriver(undefined, DECLARED_PROFILES, ["Accepted"]),
+  );
+  check(acceptedOnly.failed.length === 0, "the reference declaring Accepted only has no failure");
+  check(
+    skippedRules(acceptedOnly).includes(RULE.updateAppliesRegistration) &&
+      !acceptedOnly.passed.includes(RULE.updateAppliesRegistration),
+    "a registrations declaration lacking Pending and Rejected skips the registration move, not passes it",
+  );
+  check(
+    acceptedOnly.skipped.every((skip) => skip.reason.length > 0),
+    "every skipped rule says why",
+  );
+  check(
+    !skippedRules(acceptedOnly).includes(RULE.undeclaredRegistrationRefused) &&
+      acceptedOnly.passed.includes(RULE.undeclaredRegistrationRefused),
+    "with Pending undeclared, the refusal of an undeclared registration IS asked and passes",
+  );
+
+  const everything = await chargePointAdminConformance(
+    memoryDriver(undefined, ALL_PROFILES, ALL_REGISTRATIONS),
+  );
+  for (const rule of [
+    RULE.createRefusesUndeclared,
+    RULE.updateRefusesUndeclared,
+    RULE.undeclaredRegistrationRefused,
+    RULE.refusedRegistrationChangesNothing,
+    RULE.omittedSecurityNeedsProfile0,
+  ]) {
+    check(
+      skippedRules(everything).includes(rule) &&
+        !everything.passed.includes(rule) &&
+        !everything.failed.some((failure) => failure.rule === rule),
+      `declaring everything skips "${rule}": nothing is undeclared to refuse`,
+    );
+  }
+
+  const noSurface = await chargePointAdminConformance({
+    capabilities: { operations16: new Set() },
+    operations16: { execute: async () => "" },
+  });
+  check(
+    noSurface.failed.length === 0 &&
+      noSurface.passed.length === 1 &&
+      noSurface.passed[0] === RULE.declaredWhenImplemented &&
+      noSurface.skipped.length === allRules.length - 1,
+    "a driver without an admin surface passes only the declaration rule and skips the rest",
+  );
+
+  for (const [name, report] of [
+    ["accepted only", acceptedOnly],
+    ["everything declared", everything],
+    ["no surface", noSurface],
+  ] as const) {
+    const seen = states(report);
+    check(
+      seen.length === allRules.length && new Set(seen).size === allRules.length,
+      `the ${name} report lists every rule exactly once`,
+    );
+  }
+
+  const broken = memoryDriver(Object.values(FLAWS)[0]);
+  const report = await chargePointAdminConformance(broken);
+  check(
+    (await chargePointAdminViolations(broken)).join("|") ===
+      report.failed.map((failure) => failure.rule).join("|"),
+    "chargePointAdminViolations is the failed rules of the report",
   );
 }
 const covered = new Set<string>(Object.values(FLAWS).map((flaw) => flaw.refusedFor));
