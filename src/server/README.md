@@ -101,8 +101,17 @@ method is not `GET` or `HEAD`, same-origin ones included (as `null` under a
 `no-referrer` policy), and the server refuses any request that carries it.
 
 The server does not check the `Host` header. That would close the read gap,
-but it would also refuse clients that address the server by another name,
-and nothing it serves today is worth that.
+but it would also refuse clients that address the server by another name.
+
+### Authentication and `Host` are yours
+
+The handler performs no authentication and no `Host`-header check, so a
+DNS-rebinding page can read every `GET` through the user's browser. The
+embedding application must put both in front of it (a reverse proxy or
+middleware that authenticates the caller and refuses an unexpected `Host`).
+This matters most for `GET /v1/commands/{ref}`: its `outcome` can carry the
+station's own `response` payload, and any caller that can guess or obtain a
+ref can read it.
 
 ## The API
 
