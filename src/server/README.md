@@ -344,8 +344,10 @@ furthest state `submit16` reaches on its own:
   answer to the request, not proof the effect happened: `Reset` `Accepted`
   means the station will reset, not that it has.
 
-The per-driver table lives with the drivers: this release adds the contract
-only, and no bundled driver provides `commands` yet.
+What each bundled driver reads, and what its `2xx` or `CALLRESULT` therefore
+means, is in the table of the main README ("Command outcomes" in
+[`README.md`](../../README.md#command-outcomes)). SteVe and CitrineOS are
+accepted-only: their `outcome` never goes past `accepted`.
 
 #### Safe handling in a UI
 

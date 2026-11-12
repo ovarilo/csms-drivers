@@ -300,10 +300,33 @@ resolves to a `CommandOutcome` (`unsupported`, `rejected`, `accepted`,
 `confirmed`, `failed`, `unknown`) instead of throwing for a CSMS or station
 verdict, and `commands.poll(ref)` re-reads one when
 `capabilities.commands.polling`. A timeout after dispatch is `unknown`, never
-`failed`. What a `2xx` or a `CALLRESULT` means, how a UI should show each
-state and when a retry is safe are in
-[`src/server/README.md`](src/server/README.md#command-outcomes). No bundled
-driver reports outcomes yet; `execute` remains what they all provide.
+`failed`. `execute` is unchanged on every driver: it still resolves with a
+receipt and throws `UnsupportedOperationError` or `CsmsNotDispatchedError`;
+`commands` is additive.
+
+What a `2xx` or a `CALLRESULT` means depends on the driver, and
+`capabilities.commands` declares it:
+
+| Driver | `completion` | `polling` | What `submit16` reports |
+| --- | --- | --- | --- |
+| Codetics ev-server-lite | `confirmed` | yes | The command is followed to the station's answer: `confirmed` with the `CALLRESULT`, `rejected` for `Rejected`/`NotSupported`, `failed` for a `CALLERROR`. `SENT` still unanswered after `dispatchTimeoutMs`, or the server's own `TIMED_OUT` after `SENT`, is `unknown` (`timeout`). `poll(ref)` re-reads it by command id. |
+| EVtivity | `confirmed` | no | The route blocks, so the station's answer is the HTTP answer: `confirmed`, `rejected` or `failed` (a `502` `CALLERROR`). A `504`, the driver's own `dispatchTimeoutMs` expiring, or an aborted wait is `unknown`. There is no ref to poll. |
+| SteVe | `accepted` | no | A form SteVe accepted is `accepted`, without a ref. The station's answer is never read, so `accepted` is never `confirmed`. |
+| CitrineOS | `accepted` | no | A message the API accepted is `accepted`, without a ref (`submit201` too, on `variant: "v2"`; `v1` has no `submit201`). Never `confirmed`. |
+
+For every driver, a request that never became an OCPP CALL, or that the CSMS
+cannot express, still throws as `execute` does; and a timeout after dispatch
+is `unknown`, never `failed`. The EVtivity driver module exports `CommandWaitInterruptedError` (a
+`CsmsNotDispatchedError`, so `execute` treats it as before): the error `execute`
+throws when a wait is interrupted after the CALL may have left, which
+`submit16` reports as `unknown`.
+
+In a UI, show `accepted` as "sent", never "done", and `unknown` as "no answer
+yet", never as an error that implies nothing happened. Never retry on
+`unknown` (or a `504`) without evidence that the operation is idempotent or
+did not run: poll first where the driver can, otherwise ask the station for
+its state. What a UI should show for each state and which operations are safe
+to repeat are in [`src/server/README.md`](src/server/README.md#command-outcomes).
 
 ## Development
 
