@@ -46,14 +46,6 @@
  *  7. THE DESCRIPTION IS DECLARATIVE. `GET /v1/driver` reports identity and
  *     capabilities and nothing else, and only an admin surface that is both
  *     declared and present.
- *  9. A GENERATED PASSWORD IS RETURNED ONCE, BY THE WRITE. A driver declaring
- *     `basicAuthPassword: "generated"` has a passwordless profile 1 or 2
- *     forwarded as such and a supplied one refused (and the reverse for
- *     "supplied") with 501 before the driver is called; the password a write
- *     returns is `{generatedBasicAuthPassword}` beside the `201` id, or a `200`
- *     in place of the PATCH `204`, `no-store`, never logged, never read back by
- *     GET. `description: "required"` refuses (400) a create without a
- *     non-blank one and an update clearing or blanking it.
  *  8. A BROWSER CANNOT DRIVE IT. The daemon has no authentication, so a page
  *     the operator visits must not be able to reach it: a request carrying an
  *     `Origin` header -- which a browser sends on every cross-origin POST,
@@ -65,6 +57,14 @@
  *     accepted, and DELETE, which a browser always preflights, needs none.
  *     The Origin rule holds for every method, because a DNS-rebinding page
  *     is same-origin and preflights nothing.
+ *  9. A GENERATED PASSWORD IS RETURNED ONCE, BY THE WRITE. A driver declaring
+ *     `basicAuthPassword: "generated"` has a passwordless profile 1 or 2
+ *     forwarded as such and a supplied one refused (and the reverse for
+ *     "supplied") with 501 before the driver is called; the password a write
+ *     returns is `{generatedBasicAuthPassword}` beside the `201` id, or a `200`
+ *     in place of the PATCH `204`, `no-store`, never logged, never read back by
+ *     GET. `description: "required"` refuses (400) a create without a
+ *     non-blank one and an update clearing or blanking it.
  */
 
 import {

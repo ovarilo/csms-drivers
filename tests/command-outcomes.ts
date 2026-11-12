@@ -4,7 +4,7 @@
  * command-outcomes.ts -- the optional `commands` surface (`CsmsCommands`,
  * `capabilities.commands`) and what the HTTP adapter makes of it.
  *
- * PROPERTY, in 5 parts:
+ * PROPERTY, in 6 parts:
  *  1. OPT-IN AND BACKWARD COMPATIBLE. A driver without `commands` is served
  *     exactly as before: the 202 body has no `outcome`, `execute` is the call
  *     made, and `GET /v1/driver` reports `commands: null`. A declaration
