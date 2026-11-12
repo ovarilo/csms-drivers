@@ -67,6 +67,7 @@ import {
   UnsupportedOperationError,
   type ChargePointDefinition,
   type ChargePointDetails,
+  type ChargePointRegistration,
   type ChargePointSecurityProfile,
   type ChargePointUpdate,
   type CsmsDriver,
@@ -102,6 +103,8 @@ interface FakeOptions {
   /** Declares `capabilities.chargePoints`. Default: whatever `admin` is. */
   declareAdmin?: boolean;
   profiles?: readonly ChargePointSecurityProfile[];
+  /** Declared registrations; omitted declares nothing, which means all three. */
+  registrations?: readonly ChargePointRegistration[];
   /** Thrown (or, for "hang", never settled) by every driver call. */
   fail?: Error | "hang";
   stored?: ChargePointDetails;
@@ -123,6 +126,7 @@ function fakeDriver(options: FakeOptions = {}): { driver: CsmsDriver; seen: Reco
         ? {
             chargePoints: {
               securityProfiles: new Set<ChargePointSecurityProfile>(options.profiles ?? [0, 1]),
+              ...(options.registrations ? { registrations: new Set(options.registrations) } : {}),
             },
           }
         : {}),
@@ -711,6 +715,32 @@ await expectError(
   false,
 );
 await expectError(
+  "a create with an undeclared registration",
+  501,
+  "unsupported_capability",
+  () =>
+    exchange(
+      "POST",
+      "/v1/charge-points",
+      { id: "CP-9", registration: "Rejected" },
+      { registrations: ["Accepted", "Pending"] },
+    ),
+  false,
+);
+await expectError(
+  "an update to an undeclared registration",
+  501,
+  "unsupported_capability",
+  () =>
+    exchange(
+      "PATCH",
+      "/v1/charge-points/CP-9",
+      { registration: "Pending", description: "kept out" },
+      { registrations: ["Accepted"] },
+    ),
+  false,
+);
+await expectError(
   "a driver declaring chargePoints without the surface",
   501,
   "unsupported_capability",
@@ -954,10 +984,21 @@ await expectError(
           { operation: "reset", action: "Reset" },
           { operation: "remote-start", action: "RemoteStartTransaction" },
         ],
-        chargePoints: { securityProfiles: [0, 1] },
+        chargePoints: {
+          securityProfiles: [0, 1],
+          registrations: ["Accepted", "Pending", "Rejected"],
+        },
         commands: null,
       }),
     `GET /v1/driver describes identity and capabilities only: ${ex.text}`,
+  );
+  const accepted = await exchange("GET", "/v1/driver", undefined, {
+    registrations: ["Rejected", "Accepted"],
+  });
+  check(
+    JSON.stringify((accepted.body?.chargePoints as { registrations?: unknown })?.registrations) ===
+      JSON.stringify(["Accepted", "Rejected"]),
+    `declared registrations are described as a sorted array: ${accepted.text}`,
   );
   const bare = await exchange("GET", "/v1/driver", undefined, { admin: false });
   check(bare.body?.chargePoints === null, `no admin surface reads as null: ${bare.text}`);

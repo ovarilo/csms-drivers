@@ -69,6 +69,9 @@ export interface ChargePointUpdate {
  *
  * A security profile outside `capabilities.chargePoints.securityProfiles` is
  * refused with `UnsupportedOperationError`, by `create` and by `update`.
+ * Likewise a registration outside `capabilities.chargePoints.registrations`
+ * (all three when it is absent), and `get` never returns one. A refused call
+ * changes nothing.
  *
  * Idempotent provisioning is `get`, then `create` or `update`.
  */
@@ -89,6 +92,13 @@ export interface CsmsChargePointAdmin {
 export interface CsmsChargePointCapabilities {
   /** The profiles `create` and `update` accept. Never empty. */
   readonly securityProfiles: ReadonlySet<ChargePointSecurityProfile>;
+  /**
+   * The registration statuses `create` and `update` accept, and the only ones
+   * `get` reads back. ABSENT means all three, so a driver that predates the
+   * declaration is unchanged. Present, it is never empty and contains
+   * `"Accepted"`, the default of an omitted registration.
+   */
+  readonly registrations?: ReadonlySet<ChargePointRegistration>;
 }
 
 /** `create` was asked for an id the CSMS already has. Nothing was changed. */

@@ -138,7 +138,12 @@ An update's `security` replaces the whole block, so moving a station to
 profile 0 or 3 discards its stored password; `description: null` clears the
 description.
 A profile outside `capabilities.chargePoints.securityProfiles` is refused with
-`UnsupportedOperationError`. `create` is deliberately not an upsert: the
+`UnsupportedOperationError`. So is a registration outside
+`capabilities.chargePoints.registrations`, which is optional: absent means all
+three, and present it is never empty and contains `Accepted`, the default. A
+CSMS without `Pending` or `Rejected` declares the statuses it has, `get` never
+returns one outside the declaration, and a refused `create` or `update` changes
+nothing. `create` is deliberately not an upsert: the
 password cannot be read back, so whether an existing station matches a
 definition is undecidable, and the `get`-then-`create`-or-`update` idiom above
 is how a caller provisions idempotently.

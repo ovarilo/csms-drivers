@@ -149,7 +149,10 @@ administration:
     { "operation": "reset", "action": "Reset" },
     { "operation": "remote-start", "action": "RemoteStartTransaction" }
   ],
-  "chargePoints": { "securityProfiles": [0, 1, 2] },
+  "chargePoints": {
+    "securityProfiles": [0, 1, 2],
+    "registrations": ["Accepted", "Pending", "Rejected"]
+  },
   "commands": { "completion": "accepted", "polling": false }
 }
 ```
@@ -191,7 +194,9 @@ location: /v1/charge-points/CP-1
   `basicAuthPassword`; profiles 0 and 3 refuse one. If `security` is omitted,
   the profile is 0. A profile the driver does not list in
   `securityProfiles`, including that implicit 0, answers
-  `501 unsupported_capability`.
+  `501 unsupported_capability`. So does a `registration` the driver does not
+  list in `registrations`; the description always lists them, all three when
+  the driver declares none.
 - `create` is not an upsert. If the id already exists, it answers
   `409 conflict` and changes nothing.
 

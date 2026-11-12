@@ -13,7 +13,7 @@
  * live caller cannot import this file, which runs on import:
  * `tools/steve-charge-points.ts` asks it of the pinned SteVe.
  *
- * PROPERTY, in 6 parts:
+ * PROPERTY, in 7 parts:
  *  1. DECLARED EXACTLY WHEN IMPLEMENTED. `capabilities.chargePoints` is
  *     present if and only if `chargePoints` is, and a present declaration
  *     names at least one security profile. Absent is "no admin surface";
@@ -70,6 +70,17 @@
  *     LIKE query lists beside them; and the details form goes back whole, because
  *     SteVe's update erases whatever it is not sent.
  *
+ *  7. THE REGISTRATIONS BIND TOO (#9). `capabilities.chargePoints.registrations`
+ *     is optional: absent means all three, so a CSMS that has no Pending or
+ *     Rejected declares what it has instead of failing the suite for lacking
+ *     them. Present, it is non-empty and contains `Accepted`, and `get` never
+ *     returns a status outside it. A registration it does not declare is
+ *     refused with `UnsupportedOperationError` by `create` and by `update`,
+ *     and the refused call changes nothing. The lifecycle moves a station
+ *     between the states that ARE declared and skips the moves that need a
+ *     second one, so the reference conforms declaring only `Accepted`, and
+ *     the rules for the undeclared states run exactly when there are any.
+ *
  * "Changes nothing" and "leaves the others alone" are checked against the
  * WHOLE observable record, compared key by key after sorting, on a station
  * whose every member starts away from its default -- so a rule cannot pass
@@ -106,6 +117,7 @@ import {
   UnsupportedOperationError,
   type ChargePointDefinition,
   type ChargePointDetails,
+  type ChargePointRegistration,
   type ChargePointSecurity,
   type ChargePointSecurityProfile,
   type ChargePointUpdate,
@@ -116,6 +128,8 @@ import {
 /** The declaration the flawed copies run under unless they say otherwise:
  *  the default profile, and one that carries a password. */
 const DECLARED_PROFILES: readonly ChargePointSecurityProfile[] = [0, 1];
+
+const ALL_REGISTRATIONS: readonly ChargePointRegistration[] = ["Accepted", "Pending", "Rejected"];
 
 const failures: string[] = [];
 
@@ -132,16 +146,29 @@ interface StoredChargePoint extends ChargePointDetails {
 }
 type Store = Map<string, StoredChargePoint>;
 
-/** The contract, over a map. `accepts` is what it refuses outside of. */
+/** The contract, over a map. `accepts` and `acceptsRegistrations` are what it
+ *  refuses outside of. */
 function memoryAdmin(
   store: Store,
   accepts: ReadonlySet<ChargePointSecurityProfile>,
+  acceptsRegistrations: ReadonlySet<ChargePointRegistration>,
 ): CsmsChargePointAdmin {
   const refuseUnaccepted = (method: string, profile: ChargePointSecurityProfile): void => {
     if (!accepts.has(profile)) {
       throw new UnsupportedOperationError(
         `chargePoints.${method}`,
         `security profile ${profile} is not supported`,
+      );
+    }
+  };
+  const refuseUnacceptedRegistration = (
+    method: string,
+    registration: ChargePointRegistration | undefined,
+  ): void => {
+    if (registration !== undefined && !acceptsRegistrations.has(registration)) {
+      throw new UnsupportedOperationError(
+        `chargePoints.${method}`,
+        `registration ${registration} is not supported`,
       );
     }
   };
@@ -152,6 +179,7 @@ function memoryAdmin(
     async create(definition) {
       const security = definition.security ?? { profile: 0 };
       refuseUnaccepted("create", security.profile);
+      refuseUnacceptedRegistration("create", definition.registration);
       if (store.has(definition.id)) throw new ChargePointAlreadyExistsError(definition.id);
       store.set(definition.id, {
         id: definition.id,
@@ -169,6 +197,7 @@ function memoryAdmin(
     },
     async update(cpId, patch) {
       if (patch.security) refuseUnaccepted("update", patch.security.profile);
+      refuseUnacceptedRegistration("update", patch.registration);
       const stored = store.get(cpId);
       if (stored === undefined) throw new ChargePointNotFoundError(cpId);
       store.set(cpId, {
@@ -194,6 +223,7 @@ interface Reference {
   readonly lax: CsmsChargePointAdmin;
   readonly store: Store;
   readonly declared: ReadonlySet<ChargePointSecurityProfile>;
+  readonly declaredRegistrations: ReadonlySet<ChargePointRegistration>;
 }
 
 /** One rule broken, and the rule the copy must be refused FOR -- a copy
@@ -202,6 +232,8 @@ interface Reference {
 type FlawCase = {
   readonly refusedFor: Rule;
   readonly declares?: readonly ChargePointSecurityProfile[];
+  /** The registrations it declares; omitted means the default (all three, declared). */
+  readonly registrations?: readonly ChargePointRegistration[];
 } & (
   | { readonly admin: (reference: Reference) => Partial<CsmsChargePointAdmin> }
   | { readonly driver: (driver: CsmsDriver) => CsmsDriver }
@@ -242,6 +274,17 @@ const rewritesOnDuplicate =
       await strict.create(definition);
     },
   });
+/** A flaw whose refused `update` applies one member of its patch first,
+ *  when the refusal is for an undeclared registration. */
+const appliesBeforeRefusingRegistration =
+  (pick: (patch: ChargePointUpdate) => ChargePointUpdate) =>
+  ({ strict, lax, declaredRegistrations }: Reference): Partial<CsmsChargePointAdmin> => ({
+    update: async (cpId, patch) => {
+      if (patch.registration && !declaredRegistrations.has(patch.registration))
+        await lax.update(cpId, pick(patch));
+      await strict.update(cpId, patch);
+    },
+  });
 /** A flaw whose refused `update` applies one member of its patch first. */
 const appliesBeforeRefusing =
   (pick: (patch: ChargePointUpdate) => ChargePointUpdate) =>
@@ -253,20 +296,31 @@ const appliesBeforeRefusing =
     },
   });
 
+/** `registrations` undefined declares nothing, which means all three. */
 function memoryDriver(
   flaw?: FlawCase,
   declares: readonly ChargePointSecurityProfile[] = DECLARED_PROFILES,
+  registrations?: readonly ChargePointRegistration[],
 ): CsmsDriver {
   const store: Store = new Map();
   const declared = new Set(flaw?.declares ?? declares);
+  const declaredRegistrations = flaw?.registrations ?? registrations;
+  const acceptedRegistrations = new Set(declaredRegistrations ?? ALL_REGISTRATIONS);
   const reference: Reference = {
-    strict: memoryAdmin(store, declared),
-    lax: memoryAdmin(store, new Set(ALL_PROFILES)),
+    strict: memoryAdmin(store, declared, acceptedRegistrations),
+    lax: memoryAdmin(store, new Set(ALL_PROFILES), new Set(ALL_REGISTRATIONS)),
     store,
     declared,
+    declaredRegistrations: acceptedRegistrations,
   };
   const driver: CsmsDriver = {
-    capabilities: { operations16: new Set(), chargePoints: { securityProfiles: declared } },
+    capabilities: {
+      operations16: new Set(),
+      chargePoints: {
+        securityProfiles: declared,
+        ...(declaredRegistrations ? { registrations: new Set(declaredRegistrations) } : {}),
+      },
+    },
     operations16: { execute: async () => "" },
     chargePoints: {
       ...reference.strict,
@@ -275,6 +329,8 @@ function memoryDriver(
   };
   return flaw && "driver" in flaw ? flaw.driver(driver) : driver;
 }
+
+const DECLARED_SET: ReadonlySet<ChargePointSecurityProfile> = new Set(DECLARED_PROFILES);
 
 const FLAWS: Readonly<Record<string, FlawCase>> = {
   // Part 1.
@@ -499,6 +555,62 @@ const FLAWS: Readonly<Record<string, FlawCase>> = {
     refusedFor: RULE.refusedUpdateChangesNothing,
     admin: appliesBeforeRefusing((patch) => ({ security: patch.security })),
   },
+  // Part 7: the registrations a driver declares.
+  "declares-no-registration": {
+    refusedFor: RULE.registrationsDeclared,
+    driver: (driver) => ({
+      ...driver,
+      capabilities: {
+        ...driver.capabilities,
+        chargePoints: { securityProfiles: DECLARED_SET, registrations: new Set() },
+      },
+    }),
+  },
+  "declares-registrations-without-accepted": {
+    refusedFor: RULE.registrationsDeclared,
+    driver: (driver) => ({
+      ...driver,
+      capabilities: {
+        ...driver.capabilities,
+        chargePoints: { securityProfiles: DECLARED_SET, registrations: new Set(["Pending"]) },
+      },
+    }),
+  },
+  "get-returns-undeclared-registration": {
+    refusedFor: RULE.registrationsDeclared,
+    registrations: ["Accepted"],
+    admin: ({ strict }) => ({
+      get: async (cpId) => {
+        const details = await strict.get(cpId);
+        return details && { ...details, registration: "Pending" };
+      },
+    }),
+  },
+  "create-accepts-undeclared-registration": {
+    refusedFor: RULE.undeclaredRegistrationRefused,
+    registrations: ["Accepted", "Pending"],
+    admin: ({ lax }) => ({ create: (definition) => lax.create(definition) }),
+  },
+  "update-accepts-undeclared-registration": {
+    refusedFor: RULE.undeclaredRegistrationRefused,
+    registrations: ["Accepted", "Pending"],
+    admin: ({ lax }) => ({ update: (cpId, patch) => lax.update(cpId, patch) }),
+  },
+  "refused-registration-create-stores": {
+    refusedFor: RULE.refusedRegistrationChangesNothing,
+    registrations: ["Accepted", "Pending"],
+    admin: (ref) => ({ create: createAnyway(ref) }),
+  },
+  "refused-registration-update-applies-description": {
+    refusedFor: RULE.refusedRegistrationChangesNothing,
+    registrations: ["Accepted"],
+    admin: appliesBeforeRefusingRegistration((patch) => ({ description: patch.description })),
+  },
+  "refused-registration-update-applies-security": {
+    refusedFor: RULE.refusedRegistrationChangesNothing,
+    registrations: ["Accepted"],
+    admin: appliesBeforeRefusingRegistration((patch) => ({ security: patch.security })),
+  },
 };
 
 // The reference conforms under every shape of declaration the checks branch
@@ -515,6 +627,25 @@ for (const declares of REFERENCE_DECLARATIONS) {
   check(
     violations.length === 0,
     `the reference driver conforms declaring profiles ${declares.join(",")} (violations: ${violations.join("; ")})`,
+  );
+}
+// A CSMS without Pending or Rejected must not fail the suite for lacking them
+// (juherr/ovarilo csms-drivers#9): the reference conforms under every
+// declaration of registrations, and with none declared, which means all three.
+const REGISTRATION_DECLARATIONS: readonly (readonly ChargePointRegistration[] | undefined)[] = [
+  undefined,
+  ["Accepted"],
+  ["Accepted", "Pending"],
+  ["Accepted", "Rejected"],
+  ALL_REGISTRATIONS,
+];
+for (const registrations of REGISTRATION_DECLARATIONS) {
+  const violations = await chargePointAdminViolations(
+    memoryDriver(undefined, DECLARED_PROFILES, registrations),
+  );
+  check(
+    violations.length === 0,
+    `the reference driver conforms declaring registrations ${registrations?.join(",") ?? "none"} (violations: ${violations.join("; ")})`,
   );
 }
 const covered = new Set<string>(Object.values(FLAWS).map((flaw) => flaw.refusedFor));
@@ -900,7 +1031,8 @@ if (failures.length > 0) {
   process.exitCode = 1;
 } else {
   console.log(
-    `Charge-point administration: the reference driver conforms under ${REFERENCE_DECLARATIONS.length} declarations, ` +
+    `Charge-point administration: the reference driver conforms under ${REFERENCE_DECLARATIONS.length} profile ` +
+      `and ${REGISTRATION_DECLARATIONS.length} registration declarations, ` +
       `and each of its ${Object.values(RULE).length} rules has a flawed copy refused for it ` +
       `(${Object.keys(FLAWS).length} copies); the bundled factories declare what they implement, ` +
       `and SteVe keeps the password rule behind its fake manager UI.`,
