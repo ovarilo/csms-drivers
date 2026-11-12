@@ -2,7 +2,7 @@
 
 Reusable CSMS driver library: OCPP operation contracts, dispatch errors,
 capability declarations, typed session and connector read interfaces, the
-bundled SteVe, CitrineOS and Codetics ev-server-lite operation factories, and an HTTP/JSON handler over
+bundled SteVe, CitrineOS, Codetics ev-server-lite and EVtivity operation factories, and an HTTP/JSON handler over
 any driver. OCPP 1.6 and OCPP 2.0.1 remain separate contracts.
 
 Extracted from [open-ocpp-tck](https://github.com/juherr/open-ocpp-tck)
@@ -48,7 +48,7 @@ is a base configuration that sets `bundler`:
 
 | import | contents |
 |---|---|
-| `@ovarilo/csms-drivers` | contracts, errors, charge-point model, `createSteveCsmsDriver`, `createCitrineOsCsmsDriver`, `createCodeticsEvServerLiteCsmsDriver` |
+| `@ovarilo/csms-drivers` | contracts, errors, charge-point model, `createSteveCsmsDriver`, `createCitrineOsCsmsDriver`, `createCodeticsEvServerLiteCsmsDriver`, `createEvtivityCsmsDriver` |
 | `@ovarilo/csms-drivers/server` | `createCsmsHttpHandler` and the HTTP route table |
 | `@ovarilo/csms-drivers/steve/{api-client,ui-client,forms,charge-points}` | the SteVe driver's building blocks: WebAPI and manager-UI clients, form encoding, charge-point administration |
 | `@ovarilo/csms-drivers/citrineos/{api-client,config,http,requests,variant}` | the CitrineOS driver's building blocks: message-API client, configuration, response reading, request mapping, `v1`/`v2` routing |
@@ -151,8 +151,8 @@ Three things follow from that UI. A refusal (a password outside SteVe's 16 to
 cannot clear a stored password, so a move to profile 0 or 3 replaces it with
 a random one nobody holds. And a security change on a station that is
 connected is pushed to it as `ChangeConfiguration`; if the station refuses,
-`update` throws although the record has changed. The CitrineOS and Codetics
-ev-server-lite drivers do not implement the surface yet.
+`update` throws although the record has changed. The CitrineOS, Codetics
+ev-server-lite and EVtivity drivers do not implement the surface yet.
 
 ## Codetics ev-server-lite
 
@@ -213,6 +213,71 @@ administration contract:
   and profile 3 a client certificate authority: deployment settings, not
   something the API can declare.
 - A station's `name` is required, so a description cannot be cleared.
+
+## EVtivity
+
+[EVtivity](https://github.com/EVtivity/evtivity-csms) is a TypeScript CSMS
+(Fastify, PostgreSQL, Redis) published under the Business Source License 1.1.
+It serves OCPP 1.6J and 2.x; `createEvtivityCsmsDriver` drives **OCPP 1.6J
+only**, through one synchronous REST route per action,
+`POST /v1/ocpp/commands/v16/{Action}`, which blocks until the station answers.
+Measured against release `0.1.51`:
+
+```ts
+import { createEvtivityCsmsDriver } from "@ovarilo/csms-drivers";
+
+const driver = createEvtivityCsmsDriver({
+  config: {
+    apiUrl: "http://localhost:8480",
+    email: "admin@evtivity.local",
+    password: process.env.EVTIVITY_PASSWORD!,
+    dispatchTimeoutMs: 45_000, // the default
+  },
+  // Only needed by operations that carry a charging-profile ref.
+  refs: { chargingProfileByRef: (ref) => myProfiles.get(ref) },
+});
+
+await driver.operations16.execute("CP-1", { action: "Reset", type: "Soft" });
+```
+
+- `execute()` resolves with the route's answer once the station answered,
+  `Rejected` included. What the other answers mean:
+
+  | answer | class |
+  |---|---|
+  | 202 `COMMAND_QUEUED` (station offline, command queued) | `CsmsNotDispatchedError` |
+  | 400 `OCPP_VERSION_MISMATCH` | `UnsupportedOperationError` |
+  | other 400, 401, 403, 404, 429 (refused before it was sent) | `CsmsNotDispatchedError` |
+  | 502 whose `error` starts `CALLERROR ` or `Invalid CALLRESULT ` (the station answered) | `Error` |
+  | any other 502 (the send failed, or its fate is unknown) | `CsmsNotDispatchedError` |
+  | 504 whose `error` starts `Timeout waiting for response to ` (sent, unanswered) | `Error` |
+  | 504 `No response within 35s`, or `dispatchTimeoutMs` running out | `CsmsNotDispatchedError` |
+  | 500 | `Error` |
+
+  Keep `dispatchTimeoutMs` above the server's own 35 s bound, so a timeout
+  means the server broke that bound rather than a slow station being cut off.
+- A command for an offline station is answered `202` and queued: the driver
+  reports it as not dispatched, but EVtivity replays it the next time that
+  station connects unless its `ocpp.offlineCommandTtlHours` setting is `0`.
+- The login is rate limited and every refused password counts toward the
+  account's sign-in backoff. The driver logs in once per process, server and
+  account, shared by every driver instance, and replaces the one-hour token
+  before it expires. A login refused 401 or 403, or answered
+  `mustResetPassword`, is remembered for fifteen minutes instead of retried. A
+  command answered 401 logs in again and is sent once more, but only once the
+  session is a minute old: a 401 the server keeps sending costs at most one
+  login a minute.
+- Transaction refs are the OCPP `transactionId`. `ReserveNow` without a
+  reservation ref gets an id allocated by the driver.
+
+The driver declares no OCPP 2.0.1 surface, no sessions or connectors reader
+(inject your own through `sessions` and `connectors`) and no charge-point
+administration: a station must be registered, and not blocked, before it
+connects. EVtivity also acts once per station on its own, which a reader of a
+station's wire log needs to know: after a first `BootNotification` it pushes
+`ChangeConfiguration`s (`MeterValueSampleInterval=60` among them), and a
+transaction whose token has no driver account is stopped by the CSMS with a
+`RemoteStopTransaction` of its own.
 
 ## Over HTTP
 

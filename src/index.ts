@@ -18,3 +18,10 @@ export type {
   EvslConfig,
   EvslRefs,
 } from "./codetics-ev-server-lite/index.ts";
+export { createEvtivityCsmsDriver, EVTIVITY_CAPABILITIES } from "./evtivity/index.ts";
+export type {
+  EvtivityChargingProfile,
+  EvtivityConfig,
+  EvtivityCsmsDriverOptions,
+  EvtivityRefs,
+} from "./evtivity/index.ts";
