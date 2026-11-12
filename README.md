@@ -187,8 +187,9 @@ await driver.operations16.execute("CP-1", { action: "Reset", type: "Soft" });
   a result is a `CsmsNotDispatchedError`. The server cannot cancel a command,
   so an abandoned one may still reach the station later.
 - The server counts every signin against a limit of ten per fifteen minutes per
-  account, until it restarts. The driver logs in once per process, server and
-  account, shared by every driver instance. A signin refused 401, 403 or 429 is
+  account, until it restarts. The driver logs in once per process, server,
+  account and password, shared by every driver instance with those credentials
+  (a driver with another password logs in itself). A signin refused 401, 403 or 429 is
   remembered for fifteen minutes instead of retried, and a request answered
   401 logs in again and is retried once, but only once the token has reached
   the `expires_at` its signin gave (or, without one, is five minutes old): a
