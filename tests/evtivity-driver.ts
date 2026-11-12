@@ -1030,6 +1030,26 @@ for (const [what, routes, state] of [
     byCaller.state === "unknown" && byCaller.cause === "no-evidence",
     `12: a caller's abort expected unknown/no-evidence, got ${JSON.stringify(byCaller)}`,
   );
+  // fetch rejects with the signal's REASON: a string or a plain Error, whose
+  // name is not AbortError, must still be a caller abort.
+  for (const [what, reason] of [
+    ["a string reason", "cancelled"],
+    ["a plain Error reason", new Error("stop")],
+  ] as [string, unknown][]) {
+    const ac2 = new AbortController();
+    setTimeout(() => ac2.abort(reason), 80);
+    const out = await submit({ command: [HANGS] }, 5000, ac2.signal);
+    check(
+      out.state === "unknown" && out.cause === "no-evidence",
+      `12: a caller's abort with ${what} expected unknown/no-evidence, got ${JSON.stringify(out)}`,
+    );
+    check(
+      out.state === "unknown" &&
+        /caller/.test(out.detail ?? "") &&
+        !/timed out/.test(out.detail ?? ""),
+      `12: a caller's abort with ${what} must say the caller aborted, got ${JSON.stringify(out)}`,
+    );
+  }
 }
 
 for (const [what, routes, expect] of [

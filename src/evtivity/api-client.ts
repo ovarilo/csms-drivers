@@ -203,11 +203,18 @@ export class EvtivityApi {
       // A timeout is filed with the requests that never connected: the
       // request left, but nothing shows it became an OCPP CALL, and the
       // contract (CsmsNotDispatchedError) claims exactly that.
-      const why = isAbort(err)
-        ? `timed out after ${timeoutMs} ms: the request left, and whether the ` +
+      // fetch rejects with the signal's REASON, which a caller chooses
+      // (`abort("x")`, `abort(new Error())`): for a command the caller's
+      // signal is the evidence, the error's name only for the rest.
+      const byCaller = callerSignal?.aborted === true;
+      const why = byCaller
+        ? `aborted by the caller after the request may have left, and whether the ` +
           `server acted on it is unknown (${reason(err)})`
-        : reason(err);
-      if (command !== undefined && isAbort(err)) {
+        : isAbort(err)
+          ? `timed out after ${timeoutMs} ms: the request left, and whether the ` +
+            `server acted on it is unknown (${reason(err)})`
+          : reason(err);
+      if (command !== undefined && (byCaller || isAbort(err))) {
         throw new CommandWaitInterruptedError(
           `evtivity: POST ${url}`,
           why,
