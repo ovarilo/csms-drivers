@@ -287,6 +287,19 @@ transaction whose token has no driver account is stopped by the CSMS with a
 `@ovarilo/csms-drivers/server` serves a driver over HTTP/JSON for applications
 in any language. See [`src/server/README.md`](src/server/README.md).
 
+### Command outcomes
+
+`CsmsDriver.commands` is an optional surface beside `operations16` and
+`operations201`, whose `execute` is unchanged. `commands.submit(cpId, op)`
+resolves to a `CommandOutcome` (`unsupported`, `rejected`, `accepted`,
+`confirmed`, `failed`, `unknown`) instead of throwing for a CSMS or station
+verdict, and `commands.poll(ref)` re-reads one when
+`capabilities.commands.polling`. A timeout after dispatch is `unknown`, never
+`failed`. What a `2xx` or a `CALLRESULT` means, how a UI should show each
+state and when a retry is safe are in
+[`src/server/README.md`](src/server/README.md#command-outcomes). No bundled
+driver reports outcomes yet; `execute` remains what they all provide.
+
 ## Development
 
 ```sh

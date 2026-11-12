@@ -47,5 +47,7 @@ export interface CsmsDriver {
   readonly connectors?: CsmsConnectorApi;
   /** Present exactly when `capabilities.chargePoints` is declared. */
   readonly chargePoints?: CsmsChargePointAdmin;
+  /** Present exactly when `capabilities.commands` is declared. */
+  readonly commands?: import("./contracts.ts").CsmsCommands;
   readonly capabilities: import("./contracts.ts").CsmsCapabilities;
 }

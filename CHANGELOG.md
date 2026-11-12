@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Optional command outcomes: `CsmsDriver.commands` (`submit`, and `poll` when
+  `capabilities.commands.polling`) reports a `CommandOutcome` (`unsupported`, `rejected`,
+  `accepted`, `confirmed`, `failed`, `unknown`) as a value, and a timeout after dispatch is
+  `unknown`, never `failed`. `execute` is unchanged and no bundled driver provides `commands`
+  yet. Over HTTP, the `202` of an operation gains `outcome` when the driver has `commands`
+  (`status: "dispatched"` stays, errors and `504` are unchanged), `GET /v1/commands/{ref}` serves
+  polling, and `GET /v1/driver` reports `commands`. See "Command outcomes" in
+  `src/server/README.md`.
 - Drive a Codetics ev-server-lite CSMS with `createCodeticsEvServerLiteCsmsDriver`: every OCPP
   1.6 operation goes through its REST command endpoint, and `execute()` resolves once the
   command was written to the station. Ported from open-ocpp-tck's

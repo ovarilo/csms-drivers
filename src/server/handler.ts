@@ -16,7 +16,9 @@
  *   GET    /v1/charge-points/{id}                       chargePoints.get
  *   PATCH  /v1/charge-points/{id}                       chargePoints.update
  *   DELETE /v1/charge-points/{id}                       chargePoints.delete
- *   POST   /v1/charge-points/{id}/operations/{path}     operations16.execute
+ *   POST   /v1/charge-points/{id}/operations/{path}     operations16.execute, or
+ *                                                       commands.submit when the driver has it
+ *   GET    /v1/commands/{ref}                           commands.poll
  *
  * NO AUTHENTICATION, SO NO BROWSER. The daemon listens on loopback, and a page
  * the operator has open can reach loopback: a cross-origin "simple" request --
@@ -37,7 +39,7 @@ import {
   encodeChargePointDetails,
 } from "./charge-points.ts";
 import { InvalidInputError } from "./decode.ts";
-import { classify, CsmsHttpError, CsmsTimeoutError, redact } from "./errors.ts";
+import { classify, CsmsHttpError, CsmsTimeoutError, redact, redactDeep } from "./errors.ts";
 import { decodeOperation16, OPERATION_16_PATHS, operation16ForPath } from "./operations16.ts";
 
 /** Who the driver is. Passed in rather than read off the driver, which does not carry it. */
@@ -159,6 +161,18 @@ export function createCsmsHttpHandler(
     driver.chargePoints && capabilities.chargePoints
       ? { chargePoints: driver.chargePoints, declared: capabilities.chargePoints.securityProfiles }
       : undefined;
+  // Both halves again. Polling is the declaration AND the method: either alone
+  // is a poll nobody can make.
+  const commands =
+    driver.commands && capabilities.commands
+      ? {
+          surface: driver.commands,
+          completion: capabilities.commands.completion,
+          poll: capabilities.commands.polling
+            ? driver.commands.poll?.bind(driver.commands)
+            : undefined,
+        }
+      : undefined;
   const description = {
     id: options.about.id,
     displayName: options.about.displayName,
@@ -167,6 +181,9 @@ export function createCsmsHttpHandler(
       capabilities.operations16.has(action),
     ).map((action) => ({ operation: OPERATION_16_PATHS[action], action })),
     chargePoints: admin ? { securityProfiles: [...admin.declared].sort((a, b) => a - b) } : null,
+    commands: commands
+      ? { completion: commands.completion, polling: commands.poll !== undefined }
+      : null,
   };
 
   return async (request) => {
@@ -234,6 +251,21 @@ export function createCsmsHttpHandler(
       if (method !== "GET") methodNotAllowed("GET");
       return json(200, description);
     }
+    if (collection === "commands" && cpId !== undefined && cpId !== "") {
+      if (sub !== undefined) noRoute();
+      if (method !== "GET") methodNotAllowed("GET");
+      if (!commands?.poll) {
+        throw new CsmsHttpError(
+          501,
+          "unsupported_capability",
+          "this driver does not report command outcomes by polling",
+        );
+      }
+      const poll = commands.poll;
+      const outcome = await call(() => poll(cpId));
+      if (!outcome) notFound(`no command '${cpId}'`);
+      return json(200, { ref: redact(cpId, secrets), outcome: redactDeep(outcome, secrets) });
+    }
     if (collection !== "charge-points") noRoute();
 
     if (cpId === undefined) {
@@ -282,14 +314,21 @@ export function createCsmsHttpHandler(
       );
     }
     const operation = decodeOperation16(action, await readBody(request));
+    const accepted = { chargePointId: cpId, operation: operationPath, action };
+    if (commands) {
+      // The verdict is a value, so the status stays 202 and `status` stays
+      // "dispatched" for clients that predate `outcome`; errors and the
+      // deadline keep their statuses and carry no outcome.
+      const outcome = await call(() => commands.surface.submit(cpId, operation));
+      return json(202, {
+        ...accepted,
+        status: "dispatched",
+        outcome: redactDeep(outcome, secrets),
+      });
+    }
     // The receipt stays here: it is a CSMS's own artefact -- a task URL, a
     // response body -- and the contract reserves it for logs.
     await call(() => driver.operations16.execute(cpId, operation));
-    return json(202, {
-      chargePointId: cpId,
-      operation: operationPath,
-      action,
-      status: "dispatched",
-    });
+    return json(202, { ...accepted, status: "dispatched" });
   }
 }

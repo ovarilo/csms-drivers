@@ -40,6 +40,9 @@
  *     request's Basic Auth password inside a driver error is redacted in the
  *     response; the log line carries neither a body nor an error message,
  *     and a secret in its path is redacted.
+ *     The optional `commands` surface (outcomes, polling) is held by
+ *     tests/command-outcomes.ts; here a driver without it is described
+ *     `commands: null` and its 202 body is the one it always was.
  *  7. THE DESCRIPTION IS DECLARATIVE. `GET /v1/driver` reports identity and
  *     capabilities and nothing else, and only an admin surface that is both
  *     declared and present.
@@ -952,6 +955,7 @@ await expectError(
           { operation: "remote-start", action: "RemoteStartTransaction" },
         ],
         chargePoints: { securityProfiles: [0, 1] },
+        commands: null,
       }),
     `GET /v1/driver describes identity and capabilities only: ${ex.text}`,
   );
