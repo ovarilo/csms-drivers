@@ -184,7 +184,9 @@ await driver.operations16.execute("CP-1", { action: "Reset", type: "Soft" });
   account, until it restarts. The driver logs in once per process, server and
   account, shared by every driver instance. A signin refused 401, 403 or 429 is
   remembered for fifteen minutes instead of retried, and a request answered
-  401 (an expired token) logs in again and is retried once.
+  401 logs in again and is retried once, but only once the token has reached
+  the `expires_at` its signin gave (or, without one, is five minutes old): a
+  401 on a live token spends no signin.
 - `GetConfiguration` with a key list is an `UnsupportedOperationError`: the
   server's validator refuses any array `key` member. Requesting every key works.
 - Transaction refs are the OCPP `transactionId`, as the server uses it as its

@@ -44,8 +44,13 @@
  *     integer are plain `Error`s, never capability gaps. Capabilities declare
  *     every OCPP 1.6 action, no OCPP 2.0.1 and no charge-point administration.
  *  9. A long-lived process outlives its token. An authenticated request
- *     answered 401 drops the cached session, logs in once more and is retried
- *     once; a second 401 is the request's answer, with no third signin.
+ *     answered 401 once the token reached its `expires_at` drops the cached
+ *     session, logs in once more and is retried once; a second 401 is the
+ *     request's answer, with no third signin. A 401 on a token that has not
+ *     expired spends no signin, even when every poll of a wait gets one --
+ *     otherwise a persistent 401 would burn the signin budget in seconds.
+ *     Without `expires_at`, a session younger than five minutes is not
+ *     renewed.
  * 10. A kept signin refusal expires with the server's fifteen-minute window,
  *     so a long-lived process recovers without a restart.
  *
@@ -672,11 +677,17 @@ for (const kase of REFUSAL_CASES) {
 // ---------------------------------------------------------------------------
 
 const EXPIRED: Handler = () => json({ message: "token expired" }, 401);
+const SIGNIN_EXPIRED: Handler = () =>
+  json({ token: "bearer-old", expires_at: "2000-01-01T00:00:00Z" });
+const SIGNIN_VALID: Handler = () => json({ token: "bearer-1", expires_at: "2999-01-01T00:00:00Z" });
 
 {
-  const what = "part 9: a command POST answered 401 once";
+  const what = "part 9: an expired token, a command POST answered 401 once";
   const url = freshUrl();
-  const srv = server({ post: [EXPIRED, () => json({ id: "cmd-1", state: "QUEUED" })] });
+  const srv = server({
+    signin: [SIGNIN_EXPIRED, SIGNIN_VALID],
+    post: [EXPIRED, () => json({ id: "cmd-1", state: "QUEUED" })],
+  });
   const first = await outcomeOf(driverFor(url, srv).operations16.execute("CP1", RESET));
   check(first.ok, `${what}: expected a fresh login and a retried POST: ${message(first.err)}`);
   check(
@@ -691,8 +702,8 @@ const EXPIRED: Handler = () => json({ message: "token expired" }, 401);
 }
 
 {
-  const what = "part 9: a command POST answered 401 twice";
-  const srv = server({ post: [EXPIRED] });
+  const what = "part 9: an expired token, a command POST answered 401 twice";
+  const srv = server({ signin: [SIGNIN_EXPIRED], post: [EXPIRED] });
   const result = await outcomeOf(driverFor(freshUrl(), srv).operations16.execute("CP1", RESET));
   check(
     !result.ok && classify(result.err) === "not-dispatched",
@@ -702,6 +713,45 @@ const EXPIRED: Handler = () => json({ message: "token expired" }, 401);
     srv.count.signin === 2 && srv.count.post === 2,
     `${what}: expected one retry, got ${srv.count.signin} signins and ${srv.count.post} POSTs`,
   );
+}
+
+{
+  const what = "part 9: a valid token, every poll of the wait answered 401";
+  const srv = server({ signin: [SIGNIN_VALID], poll: [EXPIRED] });
+  const result = await outcomeOf(driverFor(freshUrl(), srv).operations16.execute("CP1", RESET));
+  check(
+    !result.ok && classify(result.err) === "plain-error",
+    `${what}: expected a plain Error, got ${result.ok ? "dispatched" : classify(result.err)}`,
+  );
+  check(
+    srv.count.signin === 1 && srv.count.poll > 1,
+    `${what}: expected one signin over ${srv.count.poll} polls, got ${srv.count.signin}`,
+  );
+}
+
+{
+  const what = "part 9: no expires_at, a command POST answered 401";
+  const realNow = Date.now;
+  let offsetMs = 0;
+  Date.now = () => realNow() + offsetMs;
+  try {
+    const url = freshUrl();
+    const srv = server({ post: [EXPIRED, EXPIRED, () => json({ id: "cmd-1", state: "QUEUED" })] });
+    const young = await outcomeOf(driverFor(url, srv).operations16.execute("CP1", RESET));
+    check(
+      !young.ok && srv.count.signin === 1,
+      `${what}: a session younger than five minutes must not be renewed, got ${srv.count.signin} signins`,
+    );
+    offsetMs = 5 * 60_000;
+    const old = await outcomeOf(driverFor(url, srv).operations16.execute("CP1", RESET));
+    check(
+      old.ok && srv.count.signin === 2,
+      `${what}: a five-minute-old session must be renewed, got ${srv.count.signin} signins` +
+        (old.ok ? "" : `: ${message(old.err)}`),
+    );
+  } finally {
+    Date.now = realNow;
+  }
 }
 
 {

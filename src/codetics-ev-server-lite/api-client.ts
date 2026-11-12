@@ -37,10 +37,14 @@
  * it is the server's transient fault.
  *
  * A TOKEN OUTLIVED. Signin answers an `expires_at`, and a process serving a
- * driver can outlive it. An authenticated request answered 401 drops the
- * cached session -- unless another caller already replaced it -- logs in once
- * more and is sent again, once: a 401 on the fresh token is the request's
- * answer, not a reason to spend more of the signin budget.
+ * driver can outlive it. An authenticated request answered 401 once that
+ * moment has come drops the cached session -- unless another caller already
+ * replaced it -- logs in once more and is sent again, once: a 401 on the fresh
+ * token is the request's answer. A 401 on a token that has not expired renews
+ * nothing, because every renewal is a counted signin: a 401 the server keeps
+ * sending (the dispatch poll reads every 250 ms) would otherwise spend the
+ * whole budget in seconds and lock the account out. Without an `expires_at`,
+ * a session is renewable from five minutes old, three signins per window.
  *
  * FAILURE CLASSES. A request `fetch` could not complete, and one the server
  * answered with a non-2xx status, are both {@link CsmsNotDispatchedError}: for
@@ -59,6 +63,19 @@ interface Session {
   token: string;
   csrf: string;
   csrfHeader: string;
+  /** From when a 401 may renew this session. See the header. */
+  renewableAt: number;
+}
+
+/** How early before `expires_at` a 401 may renew, for clock skew. */
+const EXPIRY_SKEW_MS = 30_000;
+/** The age from which a session whose signin gave no `expires_at` may be
+ *  renewed: at most three signins per rate-limit window. */
+const RENEW_WITHOUT_EXPIRY_MS = 5 * 60_000;
+
+function renewableAt(expiresAt: unknown): number {
+  const expiry = typeof expiresAt === "string" ? Date.parse(expiresAt) : Number.NaN;
+  return Number.isFinite(expiry) ? expiry - EXPIRY_SKEW_MS : Date.now() + RENEW_WITHOUT_EXPIRY_MS;
 }
 
 /** Keyed by server and account. See the header for why it is process-wide. */
@@ -226,11 +243,19 @@ export class EvslApi {
           `: ${await bodyPreview(res)}`,
       );
     }
-    const body = (await res.json().catch(() => null)) as { token?: unknown } | null;
+    const body = (await res.json().catch(() => null)) as {
+      token?: unknown;
+      expires_at?: unknown;
+    } | null;
     if (typeof body?.token !== "string" || body.token === "") {
       throw new Error(`${what} answered ${res.status} without a token`);
     }
-    return { token: body.token, csrf: setCookie(res, "XSRF-TOKEN") ?? csrf, csrfHeader };
+    return {
+      token: body.token,
+      csrf: setCookie(res, "XSRF-TOKEN") ?? csrf,
+      csrfHeader,
+      renewableAt: renewableAt(body.expires_at),
+    };
   }
 
   /** One send under the cached session, with the session it used. A method
@@ -239,7 +264,7 @@ export class EvslApi {
     method: string,
     path: string,
     body: unknown,
-  ): Promise<{ res: Response; pending: Promise<Session> }> {
+  ): Promise<{ res: Response; pending: Promise<Session>; session: Session }> {
     const pending = this.session();
     const session = await pending;
     const mutating = method !== "GET";
@@ -256,7 +281,7 @@ export class EvslApi {
     );
     const rotated = setCookie(res, "XSRF-TOKEN");
     if (rotated !== undefined) session.csrf = rotated;
-    return { res, pending };
+    return { res, pending, session };
   }
 
   /**
@@ -273,7 +298,7 @@ export class EvslApi {
   ): Promise<ApiResponse> {
     const first = await this.authenticated(method, path, body);
     let res = first.res;
-    if (res.status === 401 && !allow.includes(401)) {
+    if (res.status === 401 && !allow.includes(401) && Date.now() >= first.session.renewableAt) {
       // See the header: a token outlived, retried once on a fresh login.
       await res.body?.cancel();
       this.forget(first.pending);
