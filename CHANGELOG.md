@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Drive a bpc-csms-cloud CSMS over OCPP 1.6 with `createBpcCsmsCloudCsmsDriver`: every operation
+  goes through the console's `POST /api/command`, which blocks until the station answers, and
+  `UpdateFirmware` through its firmware jobs (a job still waiting for the station is cancelled, so
+  the console does not send it later); `execute()` resolves with the console's answer. What the
+  console cannot send as asked (a remote start without a connector, a profile other than the one it
+  builds, a local-list entry it would rewrite...) is an `UnsupportedOperationError` that sends
+  nothing. The form login is shared per process, server, account and password, and a login refused
+  401 or 429 (the console's lock-out after five wrong passwords) is remembered for fifteen minutes.
+  `commands` are confirmed, without `poll`: a station's CALLERROR, which release 1.15.1 answers
+  with a 500, is `failed`.
+
 ## [0.0.3] - 2026-11-12
 
 ### Added
