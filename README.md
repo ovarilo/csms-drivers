@@ -2,7 +2,7 @@
 
 Reusable CSMS driver library: OCPP operation contracts, dispatch errors,
 capability declarations, typed session and connector read interfaces, the
-bundled SteVe, CitrineOS, Codetics ev-server-lite and EVtivity operation factories, and an HTTP/JSON handler over
+bundled SteVe, CitrineOS, Codetics ev-server-lite, EVtivity and bpc-csms-cloud operation factories, and an HTTP/JSON handler over
 any driver. OCPP 1.6 and OCPP 2.0.1 remain separate contracts.
 
 Extracted from [open-ocpp-tck](https://github.com/juherr/open-ocpp-tck)
@@ -48,7 +48,7 @@ is a base configuration that sets `bundler`:
 
 | import | contents |
 |---|---|
-| `@ovarilo/csms-drivers` | contracts, errors, charge-point model, `createSteveCsmsDriver`, `createCitrineOsCsmsDriver`, `createCodeticsEvServerLiteCsmsDriver`, `createEvtivityCsmsDriver` |
+| `@ovarilo/csms-drivers` | contracts, errors, charge-point model, `createSteveCsmsDriver`, `createCitrineOsCsmsDriver`, `createCodeticsEvServerLiteCsmsDriver`, `createEvtivityCsmsDriver`, `createBpcCsmsCloudCsmsDriver` |
 | `@ovarilo/csms-drivers/server` | `createCsmsHttpHandler` and the HTTP route table |
 | `@ovarilo/csms-drivers/steve/{api-client,ui-client,forms,charge-points}` | the SteVe driver's building blocks: WebAPI and manager-UI clients, form encoding, charge-point administration |
 | `@ovarilo/csms-drivers/citrineos/{api-client,config,http,requests,variant}` | the CitrineOS driver's building blocks: message-API client, configuration, response reading, request mapping, `v1`/`v2` routing |
@@ -172,8 +172,8 @@ cannot clear a stored password, so a move to profile 0 or 3 replaces it with
 a random one nobody holds. And a security change on a station that is
 connected is pushed to it as `ChangeConfiguration`; if the station refuses,
 `update` throws although the record has changed. The Codetics ev-server-lite
-driver implements it too, with the limits listed in its section. The CitrineOS
-and EVtivity drivers do not implement the surface yet.
+driver implements it too, with the limits listed in its section. The CitrineOS,
+EVtivity and bpc-csms-cloud drivers do not implement the surface yet.
 
 ## Codetics ev-server-lite
 
@@ -315,6 +315,90 @@ station's wire log needs to know: after a first `BootNotification` it pushes
 transaction whose token has no driver account is stopped by the CSMS with a
 `RemoteStopTransaction` of its own.
 
+## bpc-csms-cloud
+
+[bpc-csms-cloud](https://github.com/SukritJaAIproject/bpc-csms-cloud) is an OCPP
+1.6J CSMS in one Python file (aiohttp, python-ocpp) with a web console,
+published under Apache-2.0. `createBpcCsmsCloudCsmsDriver` drives it through
+the console's own JSON routes: `POST /api/command`, which blocks while
+python-ocpp calls the station (30 s at most), and, for `UpdateFirmware`, the
+firmware jobs of `POST /api/ops/fw/update`. Measured against release `1.15.1`:
+
+```ts
+import { createBpcCsmsCloudCsmsDriver } from "@ovarilo/csms-drivers";
+
+const driver = createBpcCsmsCloudCsmsDriver({
+  config: {
+    apiUrl: "http://localhost:10000",
+    username: "admin",
+    password: process.env.BPC_CSMS_PASSWORD!,
+    dispatchTimeoutMs: 45_000, // the default
+  },
+  // Only needed by operations that carry a charging-profile ref.
+  refs: { chargingProfileByRef: (ref) => myProfiles.get(ref) },
+});
+
+await driver.operations16.execute("CP-1", { action: "Reset", type: "Soft" });
+```
+
+- `execute()` resolves with the console's answer once the station answered,
+  `Rejected` included. What the other answers mean:
+
+  | answer | class |
+  |---|---|
+  | 404 `Charge Point not found` (the station is not connected) | `CsmsNotDispatchedError` |
+  | 400 `Unknown command: …` | `UnsupportedOperationError` |
+  | other 400, 401, 403, 429 (refused before it was sent) | `CsmsNotDispatchedError` |
+  | 200 for a `RemoteStartTransaction` whose `result` has a `reason` (the console kept it back: a booking holds the connector) | `CsmsNotDispatchedError` |
+  | 500 `Waited 30s for response on [2,…` (sent, unanswered) | `Error` |
+  | 500 `'NoneType' object has no attribute 'status'` (how `1.15.1` reports a station's CALLERROR) | `Error` |
+  | any other 5xx | `Error` |
+  | `dispatchTimeoutMs` running out | `CsmsNotDispatchedError` |
+
+  Keep `dispatchTimeoutMs` above the server's own 30 s bound. The console
+  answers a station's CALLERROR to `GetConfiguration` as an empty
+  configuration, to `GetDiagnostics` as no file, and to `UpdateFirmware` as
+  sent, so those three resolve; it also drops `unknownKey` from a
+  `GetConfiguration` answer.
+- `UpdateFirmware` is a firmware job: one `sent` resolves, one still `waiting`
+  (the station is not connected, or did not answer) is cancelled so the
+  console does not send it again when the station reconnects, and is then a
+  `CsmsNotDispatchedError` (not connected) or a plain `Error` (no answer).
+- The console builds every CALL from its own parameters, so an operation it
+  cannot send as asked is an `UnsupportedOperationError` and sends nothing:
+  `RemoteStartTransaction` without a `connectorId` (the console would pick
+  one) or with a charging profile; `TriggerMessage` with `connectorId` 0;
+  `SetChargingProfile` with anything but the profile the console builds
+  (kind `Relative`, one period starting at 0, no `transactionId`, and the id
+  it gives the purpose: 1 for `ChargePointMaxProfile`, 10 + connector for
+  `TxDefaultProfile`, 20 + connector for `TxProfile`);
+  `GetCompositeSchedule` with a `chargingRateUnit`; a `SendLocalList` entry
+  that is not an upper-case `idTag` with status `Accepted` (absent too, in a
+  `Full` update) and nothing else; `ReserveNow` with a `parentIdTag` or an
+  expiry that is not in the future; `GetDiagnostics` to the console's own
+  `/api/diagnostics/upload` address; `UpdateFirmware` with `retries` or
+  `retryInterval` outside 0-20 and 0-86400 s, a location that is not http(s)
+  or ftp(s), or a `retrieveDate` in the past.
+- `ReserveNow` sends the whole seconds left until `expiryDate`, rounded up,
+  and the console computes the date on the wire from its own clock;
+  `UpdateFirmware` rounds `retrieveDate` up to the second. An `UpdateFirmware`
+  without `retries` or `retryInterval` goes out with the console's own (3 and
+  120 s unless changed in its settings).
+- The console locks a client address out for fifteen minutes after five wrong
+  passwords. The driver logs in once per process, server, account and
+  password, shared by every driver instance with those credentials (a driver
+  with another password logs in itself), and a login refused 401 or 429 is
+  remembered for fifteen minutes instead of retried. A command answered 401
+  (the session ends at the next 08:00 of the server's clock) logs in again
+  and is sent once more, but only once the session is a minute old.
+- Transaction refs are the OCPP `transactionId`. `ReserveNow` without a
+  reservation ref gets an id allocated by the driver.
+
+The driver declares no OCPP 2.0.1 surface, no sessions or connectors reader
+(inject your own through `sessions` and `connectors`) and no charge-point
+administration: the console answers an unknown station's `BootNotification`
+`Pending` until an operator accepts it.
+
 ## Over HTTP
 
 `@ovarilo/csms-drivers/server` serves a driver over HTTP/JSON for applications
@@ -339,6 +423,7 @@ What a `2xx` or a `CALLRESULT` means depends on the driver, and
 | --- | --- | --- | --- |
 | Codetics ev-server-lite | `confirmed` | yes | The command is followed to the station's answer: `confirmed` with the `CALLRESULT`, `rejected` for `Rejected`/`NotSupported`, `failed` for a `CALLERROR`. `SENT` still unanswered after `dispatchTimeoutMs`, or the server's own `TIMED_OUT` after `SENT`, is `unknown` (`timeout`). `poll(ref)` re-reads it by command id. |
 | EVtivity | `confirmed` | no | The route blocks, so the station's answer is the HTTP answer: `confirmed`, `rejected` or `failed` (a `502` `CALLERROR`). A `504`, a `502` `Connection closed`, the driver's own `dispatchTimeoutMs` expiring, or an aborted wait is `unknown`. There is no ref to poll. |
+| bpc-csms-cloud | `confirmed` | no | The route blocks, so the station's answer is the HTTP answer: `confirmed` (with the station's payload, rebuilt where the console reshapes it), `rejected`, or `failed` for the `500` that is a station's CALLERROR. The `500` `Waited 30s`, a firmware job the station left unanswered, the driver's own `dispatchTimeoutMs` expiring, or an aborted wait is `unknown`. There is no ref to poll. |
 | SteVe | `accepted` | no | A form SteVe accepted is `accepted`, without a ref. The station's answer is never read, so `accepted` is never `confirmed`. |
 | CitrineOS | `accepted` | no | A message the API accepted is `accepted`, without a ref (`submit201` too, on `variant: "v2"`; `v1` has no `submit201`). Never `confirmed`. |
 
