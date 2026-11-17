@@ -336,7 +336,7 @@ const PROFILES: Readonly<Record<string, BpcCsmsCloudChargingProfile>> = {
   },
 };
 
-const PASSWORD = "admin-Pa55";
+const PASSWORD = "admin123";
 
 function driverFor(url: string, srv: Server, dispatchTimeoutMs?: number): CsmsDriver {
   return createBpcCsmsCloudCsmsDriver({
